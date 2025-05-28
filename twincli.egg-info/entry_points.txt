@@ -1,2 +1,2 @@
 [console_scripts]
-twincli = twincli.__main__:main
+twincli = twincli.__main__:cli

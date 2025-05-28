@@ -12,7 +12,7 @@ dependencies = [
 
 
 [project.scripts]
-twincli = "twincli.__main__:main"
+twincli = "twincli.__main__:cli"
 
 [build-system]
 requires = ["setuptools>=61.0"]
