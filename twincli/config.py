@@ -20,10 +20,14 @@ def save_config(gemini_key, serper_key):
     config_path = get_config_path()
     config_path.parent.mkdir(exist_ok=True)
     
-    config = {
-        "api_key": gemini_key,
-        "serper_api_key": serper_key
-    }
+    # Load existing config first
+    existing_config = load_config()
+    
+    # Only update keys that aren't empty
+    if gemini_key.strip():
+        existing_config["api_key"] = gemini_key
+    if serper_key.strip():
+        existing_config["serper_api_key"] = serper_key
     
     with open(config_path, 'w') as f:
-        json.dump(config, f, indent=2)
+        json.dump(existing_config, f, indent=2)

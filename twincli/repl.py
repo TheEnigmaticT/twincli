@@ -15,7 +15,7 @@ def start_repl():
     
     # Create the model - let Google AI handle the tool conversion automatically
     model = genai.GenerativeModel(
-        model_name="gemini-1.5-flash",
+        model_name="gemini-2.5-pro-preview-05-06",
         tools=TOOLS,
         system_instruction="You are a helpful assistant. When asked to perform calculations or solve problems, think through them step by step and show your reasoning. You can perform basic mathematical calculations including date arithmetic like ISO week calculations.",
         generation_config={
@@ -33,7 +33,7 @@ def start_repl():
     )
     chat = model.start_chat()
 
-    console.print("[bold blue]TwinCLI Chat Mode — Gemini 2.5 Pro[/bold blue]\n")
+    console.print("[bold blue]TwinCLI Chat Mode — Gemini 2.5 Flash[/bold blue]\n")
 
     while True:
         try:
@@ -88,14 +88,20 @@ def start_repl():
                         
                         console.print(f"[dim]Calling {function_name} with args: {function_args}[/dim]")
                         
-                        # Execute the function (since we passed it directly, we need to find it)
+                        # Execute the function (same pattern as search_web)
                         try:
                             if function_name == "search_web":
                                 from twincli.tools.search import search_web
                                 result = search_web(**function_args)
-                            elif function_name == "get_current_datetime":
-                                from twincli.tools.datetime_tool import get_current_datetime
-                                result = get_current_datetime(**function_args)
+                            elif function_name == "search_obsidian":
+                                from twincli.tools.obsidian import search_obsidian
+                                result = search_obsidian(**function_args)
+                            elif function_name == "read_obsidian_note":
+                                from twincli.tools.obsidian import read_obsidian_note
+                                result = read_obsidian_note(**function_args)
+                            elif function_name == "list_recent_notes":
+                                from twincli.tools.obsidian import list_recent_notes
+                                result = list_recent_notes(**function_args)
                             else:
                                 console.print(f"[red]Unknown function: {function_name}[/red]")
                                 continue
