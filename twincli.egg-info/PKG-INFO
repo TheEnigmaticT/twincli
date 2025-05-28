@@ -1,8 +1,11 @@
 Metadata-Version: 2.4
 Name: twincli
-Version: 0.1.2
+Version: 0.1.3
 Summary: A lightweight Gemini terminal client with a twin-pun name
 Requires-Python: >=3.8
 Description-Content-Type: text/markdown
+License-File: LICENSE.md
 Requires-Dist: google-generativeai>=0.4.1
 Requires-Dist: rich
+Requires-Dist: click
+Dynamic: license-file
