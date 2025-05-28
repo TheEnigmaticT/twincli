@@ -1,0 +1,18 @@
+[project]
+name = "twincli"
+version = "0.1.2"
+description = "A lightweight Gemini terminal client with a twin-pun name"
+readme = "README.md"
+requires-python = ">=3.8"
+dependencies = [
+    "google-generativeai>=0.4.1",
+    "rich"
+]
+
+
+[project.scripts]
+twincli = "twincli.__main__:main"
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
