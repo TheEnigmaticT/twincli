@@ -5,15 +5,21 @@ from rich.markdown import Markdown
 
 from twincli.config import load_config, save_config
 from twincli.tools import TOOLS
-from twincli.repl import start_repl  # Break REPL into its own file for clarity since I'm switching to Click anyway
+from twincli.repl import start_repl
 
-VERSION = "0.1.3"
+VERSION = "0.1.4"
 console = Console()
 
-@click.group()
-def cli():
-    """TwinCLI — A terminal assistant powered by Gemini 2.5."""
-    pass
+@click.group(invoke_without_command=True)
+@click.pass_context
+def cli(ctx):
+    """TwinCLI — A terminal assistant powered by Gemini 2.5.
+    
+    By default, starts a REPL chat session. Use subcommands for other actions.
+    """
+    if ctx.invoked_subcommand is None:
+        # No subcommand provided, start REPL by default
+        start_repl()
 
 @cli.command()
 def config():
@@ -34,7 +40,7 @@ def version():
 
 @cli.command()
 def repl():
-    """Start a REPL chat session with Gemini."""
+    """Start a REPL chat session with Gemini (same as default behavior)."""
     start_repl()
 
 if __name__ == "__main__":

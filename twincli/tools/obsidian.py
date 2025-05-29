@@ -233,6 +233,60 @@ def _extract_tags(content: str) -> List[str]:
     tags = re.findall(r'#(\w+)', content)
     return list(set(tags))  # Remove duplicates
 
+# Add to twincli/tools/obsidian.py
+
+def create_obsidian_note(title: str, content: str, vault_path: str = None, folder: str = None) -> str:
+    """Create a new note in Obsidian vault.
+    
+    Args:
+        title: Note title (will be filename)
+        content: Note content in markdown
+        vault_path: Path to vault (auto-detected if None)
+        folder: Subfolder within vault (optional)
+    """
+    if vault_path is None:
+        vault_path = _find_obsidian_vault()
+        if not vault_path:
+            return "No Obsidian vault found."
+    
+    vault_path = Path(vault_path)
+    
+    # Handle subfolder
+    if folder:
+        note_path = vault_path / folder
+        note_path.mkdir(parents=True, exist_ok=True)
+    else:
+        note_path = vault_path
+    
+    # Clean title for filename
+    safe_title = re.sub(r'[<>:"/\\|?*]', '_', title)
+    file_path = note_path / f"{safe_title}.md"
+    
+    # Check if file exists
+    if file_path.exists():
+        return f"Note '{title}' already exists. Use update_obsidian_note to modify it."
+    
+    try:
+        with open(file_path, 'w', encoding='utf-8') as f:
+            f.write(content)
+        return f"Created note: {title}"
+    except Exception as e:
+        return f"Error creating note: {e}"
+
+def update_obsidian_note(title: str, content: str, append: bool = False) -> str:
+    """Update an existing note or append to it."""
+    # Implementation for updating notes
+    pass
+
+def create_daily_note(content: str = None) -> str:
+    """Create today's daily note with optional content."""
+    from datetime import datetime
+    today = datetime.now().strftime("%Y-%m-%d")
+    
+    if content is None:
+        content = f"# {today}\n\n## Tasks\n- \n\n## Notes\n\n"
+    
+    return create_obsidian_note(today, content, folder="Daily Notes")
 
 def list_recent_notes(vault_path: str = None, limit: int = 10) -> str:
     """List recently modified notes in Obsidian vault.
