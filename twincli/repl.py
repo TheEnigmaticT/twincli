@@ -12,13 +12,29 @@ console = Console()
 # Rate limiting configuration
 class RateLimiter:
     def __init__(self):
-        self.requests_per_minute = 50  # Conservative limit
-        self.tokens_per_minute = 800_000  # Well below the 1M limit
+        self.max_requests_per_minute = 60  # Gemini's actual limit
+        self.max_tokens_per_minute = 1_000_000  # Gemini's actual limit
         self.request_times = []
         self.token_usage_history = []
         self.last_request_time = 0
-        self.min_request_interval = 1.0  # Minimum seconds between requests
         
+    def _calculate_adaptive_interval(self, current_usage, max_limit, usage_type="requests"):
+        """Calculate adaptive wait time based on current usage percentage."""
+        usage_percentage = current_usage / max_limit
+        
+        if usage_percentage < 0.66:  # Below 66% - no throttling
+            return 0.0
+        elif usage_percentage < 0.80:  # 66-80% - light throttling
+            # Linear scale from 0 to 0.5 seconds
+            return (usage_percentage - 0.66) / (0.80 - 0.66) * 0.5
+        elif usage_percentage < 0.90:  # 80-90% - moderate throttling
+            # Linear scale from 0.5 to 2.0 seconds
+            return 0.5 + (usage_percentage - 0.80) / (0.90 - 0.80) * 1.5
+        else:  # 90%+ - aggressive throttling
+            # Logarithmic scale from 2.0 seconds upward
+            excess = usage_percentage - 0.90
+            return 2.0 + (excess / 0.10) ** 2 * 8.0  # Up to 10 seconds at 100%
+    
     def should_rate_limit(self, estimated_tokens=0):
         """Check if we should rate limit based on recent usage.""" 
         now = time.time()
@@ -28,20 +44,31 @@ class RateLimiter:
         self.request_times = [t for t in self.request_times if t > cutoff]
         self.token_usage_history = [(t, tokens) for t, tokens in self.token_usage_history if t > cutoff]
         
-        # Check request frequency
-        if len(self.request_times) >= self.requests_per_minute:
-            return True, "Too many requests per minute"
-        
-        # Check token usage
+        current_requests = len(self.request_times)
         recent_tokens = sum(tokens for _, tokens in self.token_usage_history)
-        if recent_tokens + estimated_tokens > self.tokens_per_minute:
-            return True, f"Token limit approaching ({recent_tokens:,}/min + {estimated_tokens:,} estimated)"
+        projected_tokens = recent_tokens + estimated_tokens
         
-        # Check minimum interval between requests
-        if now - self.last_request_time < self.min_request_interval:
-            return True, f"Minimum request interval not met ({self.min_request_interval}s)"
+        # Calculate required wait times based on usage
+        request_wait = self._calculate_adaptive_interval(current_requests, self.max_requests_per_minute, "requests")
+        token_wait = self._calculate_adaptive_interval(projected_tokens, self.max_tokens_per_minute, "tokens")
         
-        return False, None
+        # Use the longer of the two wait times
+        required_wait = max(request_wait, token_wait)
+        
+        if required_wait > 0:
+            time_since_last = now - self.last_request_time
+            if time_since_last < required_wait:
+                remaining_wait = required_wait - time_since_last
+                
+                # Determine reason for throttling
+                if token_wait > request_wait:
+                    reason = f"Token usage at {projected_tokens/self.max_tokens_per_minute*100:.1f}% ({projected_tokens:,}/{self.max_tokens_per_minute:,})"
+                else:
+                    reason = f"Request rate at {current_requests/self.max_requests_per_minute*100:.1f}% ({current_requests}/{self.max_requests_per_minute})"
+                    
+                return True, reason, remaining_wait
+        
+        return False, None, 0
     
     def record_request(self, token_count=0):
         """Record a successful request."""
@@ -52,10 +79,9 @@ class RateLimiter:
     
     def wait_if_needed(self):
         """Wait if we need to respect rate limits."""
-        should_limit, reason = self.should_rate_limit()
+        should_limit, reason, wait_time = self.should_rate_limit()
         if should_limit:
-            wait_time = max(1.0, self.min_request_interval - (time.time() - self.last_request_time))
-            console.print(f"[yellow]Rate limiting: {reason}. Waiting {wait_time:.1f}s...[/yellow]")
+            console.print(f"[yellow]Adaptive rate limiting: {reason}. Waiting {wait_time:.1f}s...[/yellow]")
             time.sleep(wait_time)
 
 # Global rate limiter
@@ -143,7 +169,7 @@ def safe_api_call(chat, content, max_retries=3):
             # Track token usage
             usage_info = token_tracker.track_usage(response)
             if usage_info:
-                console.print(f"[dim]Tokens: {usage_info['total_tokens']:,} (${usage_info['total_cost']:.6f})[/dim]")
+                console.print(f"[blue]Tokens: {usage_info['total_tokens']:,} (${usage_info['total_cost']:.6f})[/blue]")
             
             return response, None
             
@@ -189,15 +215,11 @@ def safe_api_call(chat, content, max_retries=3):
 
 ENHANCED_SYSTEM_INSTRUCTION = """You are TwinCLI, an advanced agentic AI assistant with comprehensive tool access and persistent memory capabilities. You operate as a thoughtful, proactive partner in accomplishing complex tasks.
 
-## CRITICAL: MANDATORY LOGGING BEHAVIOR
-
-You MUST be extremely verbose in your logging. For every significant action, thought, or decision, you MUST log it. This is not optional - detailed logging is a core requirement of your operation.
-
 **REQUIRED LOGGING PATTERNS:**
 
 1. **ALWAYS start each session** with `initialize_work_session()`
 
-2. **For ANY task or request, ALWAYS:**
+2. **For Complex tasks or requests, ALWAYS:**
    - Call `log_reasoning()` to explain your approach and thinking
    - Call `log_tool_action()` after using any tool to summarize what you learned
    - Call `log_task_progress()` when starting, completing, or failing tasks
@@ -241,8 +263,6 @@ log_tool_action("search_web", "Research competitors in the startup consulting sp
 # When completing tasks
 log_task_progress("task_1", "Research target company", "complete", "Successfully analyzed their service offerings and target market")
 ```
-
-**Remember:** The journal is your persistent memory and the user's window into your thought process. BE EXTREMELY DETAILED. Every significant thought, discovery, or action should be logged.
 
 ## Core Capabilities & Approach
 
@@ -344,9 +364,7 @@ For **COMPLEX TASKS** (multi-step projects, automation):
 - Always provide partial results and explain what worked vs. what didn't
 - Suggest manual alternatives when automation isn't possible
 
-Remember: You're not just answering queries—you're serving as an intelligent, persistent partner in achieving the user's goals. Think strategically, act systematically, and always consider the bigger picture while maintaining meticulous attention to detail.
-
-**MOST IMPORTANTLY: LOG EVERYTHING. Your journal is your persistent memory and the user's primary way to understand your thought process and track progress.**"""
+Remember: You're not just answering queries—you're serving as an intelligent, persistent partner in achieving the user's goals. Think strategically, act systematically, and always consider the bigger picture while maintaining meticulous attention to detail."""
 
 def create_function_dispatcher():
     """Create a dynamic function dispatcher from loaded tools."""
@@ -481,7 +499,7 @@ def start_repl():
     chat = model.start_chat()
 
     console.print("[bold blue]TwinCLI Chat Mode — Gemini 2.5 Flash[/bold blue]")
-    console.print("[dim]Enhanced with rate limiting, auto-retry, and cost monitoring[/dim]\n")
+    console.print("[dim]Enhanced with adaptive rate limiting, auto-retry, and cost monitoring[/dim]\n")
 
     while True:
         try:
@@ -553,7 +571,7 @@ def start_repl():
                         function_name = part.function_call.name
                         function_args = dict(part.function_call.args)
                         
-                        console.print(f"[dim]Calling {function_name} with args: {function_args}[/dim]")
+                        console.print(f"[bright_green]Calling {function_name} with args: {function_args}[/bright_green]")
                         
                         try:
                             if function_name in function_dispatcher:

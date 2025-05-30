@@ -1,8 +1,131 @@
-
 import os
 import re
 from pathlib import Path
 from typing import List, Dict
+from datetime import datetime
+
+def _find_obsidian_vault() -> str:
+    """Try to find Obsidian vault path automatically."""
+    # Check TwinCLI config first
+    try:
+        from twincli.config import load_config
+        config = load_config()
+        config_path = config.get('obsidian_vault_path')
+        if config_path and Path(config_path).exists():
+            return config_path
+    except:
+        pass
+    
+    # Check environment variable
+    env_path = os.getenv('OBSIDIAN_VAULT_PATH')
+    if env_path and Path(env_path).exists():
+        return env_path
+    
+    # Common locations to check
+    home = Path.home()
+    common_paths = [
+        home / "Documents" / "CrowdTamers Obsidian Vault",  # Based on your specific case
+        home / "Obsidian",
+        home / "Documents" / "Obsidian",
+        home / "obsidian-vault",
+        home / "vault",
+        home / "notes",
+    ]
+    
+    for path in common_paths:
+        if path.exists() and any(path.glob("*.md")):
+            return str(path)
+    
+    return None
+
+def search_obsidian(query: str, vault_path: str = None) -> str:
+    """Search through Obsidian vault for notes containing the query."""
+    if vault_path is None:
+        vault_path = _find_obsidian_vault()
+        if not vault_path:
+            return "No Obsidian vault path configured. Please specify vault_path or set OBSIDIAN_VAULT_PATH environment variable."
+    
+    vault_path = Path(vault_path)
+    if not vault_path.exists():
+        return f"Obsidian vault not found at: {vault_path}"
+    
+    print(f"[DEBUG] Searching for '{query}' in vault: {vault_path}")
+    
+    matches = []
+    query_lower = query.lower()
+    
+    # Search through all markdown files
+    for md_file in vault_path.rglob("*.md"):
+        # Skip hidden files and folders
+        if any(part.startswith('.') for part in md_file.parts):
+            continue
+        
+        try:
+            with open(md_file, 'r', encoding='utf-8') as f:
+                content = f.read()
+                
+            # Check if query matches in title (filename) or content
+            filename_match = query_lower in md_file.stem.lower()
+            content_match = query_lower in content.lower()
+            
+            if filename_match or content_match:
+                rel_path = md_file.relative_to(vault_path)
+                
+                # Create a snippet showing context around matches
+                snippet = ""
+                if content_match:
+                    # Find first occurrence in content
+                    content_lower = content.lower()
+                    match_pos = content_lower.find(query_lower)
+                    if match_pos != -1:
+                        # Get context around the match (100 chars before/after)
+                        start = max(0, match_pos - 100)
+                        end = min(len(content), match_pos + len(query) + 100)
+                        snippet = content[start:end].replace('\n', ' ').strip()
+                        if start > 0:
+                            snippet = "..." + snippet
+                        if end < len(content):
+                            snippet = snippet + "..."
+                
+                match_info = {
+                    'file': str(rel_path),
+                    'title': md_file.stem,
+                    'filename_match': filename_match,
+                    'content_match': content_match,
+                    'snippet': snippet
+                }
+                matches.append(match_info)
+                
+        except Exception as e:
+            print(f"[DEBUG] Error reading {md_file}: {e}")
+            continue
+    
+    if not matches:
+        return f"No notes found containing '{query}' in vault: {vault_path}"
+    
+    # Format results
+    result_parts = [f"Found {len(matches)} notes containing '{query}':\n"]
+    
+    for i, match in enumerate(matches[:10], 1):  # Limit to first 10 results
+        result_parts.append(f"{i}. **{match['title']}**")
+        result_parts.append(f"   Path: {match['file']}")
+        
+        match_types = []
+        if match['filename_match']:
+            match_types.append("title")
+        if match['content_match']:
+            match_types.append("content")
+        result_parts.append(f"   Match in: {', '.join(match_types)}")
+        
+        if match['snippet']:
+            result_parts.append(f"   Context: {match['snippet']}")
+        
+        result_parts.append("")  # Empty line between results
+    
+    if len(matches) > 10:
+        result_parts.append(f"... and {len(matches) - 10} more matches")
+    
+    return "\n".join(result_parts)
 
 def read_obsidian_note(note_title: str, vault_path: str = None) -> str:
     """Read the full content of a specific Obsidian note.
@@ -14,7 +137,6 @@ def read_obsidian_note(note_title: str, vault_path: str = None) -> str:
     Returns:
         String containing the full note content
     """
-    # Try to find vault path if not provided
     if vault_path is None:
         vault_path = _find_obsidian_vault()
         if not vault_path:
@@ -24,16 +146,10 @@ def read_obsidian_note(note_title: str, vault_path: str = None) -> str:
     if not vault_path.exists():
         return f"Obsidian vault not found at: {vault_path}"
     
-    # Debug: Show what we're looking for
     print(f"[DEBUG] Looking for note: '{note_title}' in vault: {vault_path}")
     
     # Clean the note title and handle different formats
     note_title_clean = note_title.strip()
-    
-    # Handle different input formats:
-    # 1. "Note Title" -> look for "Note Title.md"
-    # 2. "Folder/Note Title" -> look for "Folder/Note Title.md"
-    # 3. "Note Title.md" -> look for "Note Title.md"
     
     # Remove .md extension if present for consistent handling
     if note_title_clean.endswith('.md'):
@@ -70,9 +186,7 @@ def read_obsidian_note(note_title: str, vault_path: str = None) -> str:
 
 def _search_exact_path(vault_path: Path, note_title: str) -> tuple:
     """Search for exact path match."""
-    # If note_title contains slashes, treat it as a relative path
     if '/' in note_title or '\\' in note_title:
-        # Normalize path separators
         note_path = note_title.replace('\\', '/')
         full_path = vault_path / f"{note_path}.md"
         
@@ -87,15 +201,12 @@ def _search_case_insensitive(vault_path: Path, note_title: str) -> tuple:
     note_title_lower = note_title.lower()
     
     for md_file in vault_path.rglob("*.md"):
-        # Skip hidden files and folders
         if any(part.startswith('.') for part in md_file.parts):
             continue
         
-        # Get the relative path from vault root (without .md extension)
         rel_path = md_file.relative_to(vault_path)
         rel_path_no_ext = str(rel_path)[:-3] if str(rel_path).endswith('.md') else str(rel_path)
         
-        # Check if it matches (case-insensitive)
         if rel_path_no_ext.lower() == note_title_lower:
             print(f"[DEBUG] Found case-insensitive match: {md_file}")
             return (md_file, "case-insensitive match")
@@ -104,7 +215,6 @@ def _search_case_insensitive(vault_path: Path, note_title: str) -> tuple:
 
 def _search_filename_only(vault_path: Path, note_title: str) -> tuple:
     """Search by filename only, ignoring folder structure."""
-    # Extract just the filename if note_title includes path
     if '/' in note_title:
         filename_only = note_title.split('/')[-1]
     elif '\\' in note_title:
@@ -115,11 +225,9 @@ def _search_filename_only(vault_path: Path, note_title: str) -> tuple:
     filename_lower = filename_only.lower()
     
     for md_file in vault_path.rglob("*.md"):
-        # Skip hidden files and folders
         if any(part.startswith('.') for part in md_file.parts):
             continue
         
-        # Check if filename matches (case-insensitive)
         if md_file.stem.lower() == filename_lower:
             print(f"[DEBUG] Found filename match: {md_file}")
             return (md_file, "filename match")
@@ -132,21 +240,17 @@ def _search_partial_match(vault_path: Path, note_title: str) -> tuple:
     partial_matches = []
     
     for md_file in vault_path.rglob("*.md"):
-        # Skip hidden files and folders
         if any(part.startswith('.') for part in md_file.parts):
             continue
         
-        # Check filename for partial match
         if note_title_lower in md_file.stem.lower():
             partial_matches.append(md_file)
         
-        # Also check the full relative path
         rel_path = md_file.relative_to(vault_path)
         rel_path_str = str(rel_path)[:-3] if str(rel_path).endswith('.md') else str(rel_path)
         if note_title_lower in rel_path_str.lower():
             partial_matches.append(md_file)
     
-    # Remove duplicates
     partial_matches = list(set(partial_matches))
     
     if len(partial_matches) == 1:
@@ -154,7 +258,6 @@ def _search_partial_match(vault_path: Path, note_title: str) -> tuple:
         return (partial_matches[0], "partial match")
     elif len(partial_matches) > 1:
         print(f"[DEBUG] Found multiple partial matches: {[str(f) for f in partial_matches]}")
-        # Return the first one, but this could be improved with better ranking
         return (partial_matches[0], f"partial match (1 of {len(partial_matches)})")
     
     return None
@@ -163,12 +266,10 @@ def _generate_debug_info(vault_path: Path, note_title: str) -> str:
     """Generate detailed debugging information when note is not found."""
     debug_info = [f"No note found with title '{note_title}' in Obsidian vault: {vault_path}"]
     
-    # List all markdown files in the vault for debugging
     debug_info.append("\nDebugging Information:")
     debug_info.append(f"Vault path exists: {vault_path.exists()}")
     debug_info.append(f"Vault path is directory: {vault_path.is_dir()}")
     
-    # Find all .md files
     md_files = list(vault_path.rglob("*.md"))
     debug_info.append(f"Total .md files found: {len(md_files)}")
     
@@ -181,9 +282,8 @@ def _generate_debug_info(vault_path: Path, note_title: str) -> str:
         if len(md_files) > 10:
             debug_info.append(f"  ... and {len(md_files) - 10} more files")
     
-    # Check if the specific folder structure exists
     if '/' in note_title:
-        folder_parts = note_title.split('/')[:-1]  # All but the last part
+        folder_parts = note_title.split('/')[:-1]
         folder_path = vault_path
         debug_info.append(f"\nChecking folder structure for: {note_title}")
         
@@ -193,76 +293,98 @@ def _generate_debug_info(vault_path: Path, note_title: str) -> str:
     
     return "\n".join(debug_info)
 
-def _find_obsidian_vault() -> str:
-    """Try to find Obsidian vault path automatically."""
-    # Check TwinCLI config first
-    try:
-        from twincli.config import load_config
-        config = load_config()
-        config_path = config.get('obsidian_vault_path')
-        if config_path and Path(config_path).exists():
-            return config_path
-    except:
-        pass
-    
-    # Check environment variable
-    env_path = os.getenv('OBSIDIAN_VAULT_PATH')
-    if env_path and Path(env_path).exists():
-        return env_path
-    
-    # Common locations to check
-    home = Path.home()
-    common_paths = [
-        home / "Documents" / "CrowdTamers Obsidian Vault",  # Based on your specific case
-        home / "Obsidian",
-        home / "Documents" / "Obsidian",
-        home / "obsidian-vault",
-        home / "vault",
-        home / "notes",
-    ]
-    
-    for path in common_paths:
-        if path.exists() and any(path.glob("*.md")):
-            return str(path)
-    
-    return None
-
-# Keep all the other functions from the original obsidian.py file...
-def search_obsidian(query: str, vault_path: str = None) -> str:
-    """Search through Obsidian vault for notes containing the query."""
-    # [Keep the original implementation]
-    pass
-
 def create_obsidian_note(title: str, content: str, vault_path: str = None, folder: str = None) -> str:
     """Create a new note in Obsidian vault."""
-    # [Keep the original implementation] 
-    pass
+    if vault_path is None:
+        vault_path = _find_obsidian_vault()
+        if not vault_path:
+            return "No Obsidian vault path configured."
+    
+    vault_path = Path(vault_path)
+    if not vault_path.exists():
+        return f"Obsidian vault not found at: {vault_path}"
+    
+    # Determine the full path for the new note
+    if folder:
+        note_folder = vault_path / folder
+        note_folder.mkdir(parents=True, exist_ok=True)
+        note_path = note_folder / f"{title}.md"
+    else:
+        note_path = vault_path / f"{title}.md"
+    
+    try:
+        with open(note_path, 'w', encoding='utf-8') as f:
+            f.write(content)
+        
+        rel_path = note_path.relative_to(vault_path)
+        return f"Created note: {rel_path}"
+        
+    except Exception as e:
+        return f"Error creating note: {e}"
 
-def update_obsidian_note(title: str, content: str, append: bool = False) -> str:
+def update_obsidian_note(title: str, content: str, append: bool = False, vault_path: str = None) -> str:
     """Update an existing note or append to it."""
-    # Implementation for updating notes
-    pass
+    if vault_path is None:
+        vault_path = _find_obsidian_vault()
+        if not vault_path:
+            return "No Obsidian vault path configured."
+    
+    vault_path = Path(vault_path)
+    
+    # First try to find the existing note
+    note_title_clean = title.strip()
+    if note_title_clean.endswith('.md'):
+        note_title_clean = note_title_clean[:-3]
+    
+    # Try to find the existing note
+    search_strategies = [
+        lambda: _search_exact_path(vault_path, note_title_clean),
+        lambda: _search_case_insensitive(vault_path, note_title_clean),
+        lambda: _search_filename_only(vault_path, note_title_clean),
+    ]
+    
+    note_path = None
+    for strategy in search_strategies:
+        result = strategy()
+        if result:
+            note_path, _ = result
+            break
+    
+    if not note_path:
+        # Note doesn't exist, create it
+        return create_obsidian_note(title, content, str(vault_path))
+    
+    try:
+        if append:
+            # Read existing content and append
+            with open(note_path, 'r', encoding='utf-8') as f:
+                existing_content = f.read()
+            new_content = existing_content + "\n\n" + content
+        else:
+            # Replace content
+            new_content = content
+        
+        with open(note_path, 'w', encoding='utf-8') as f:
+            f.write(new_content)
+        
+        rel_path = note_path.relative_to(vault_path)
+        action = "Appended to" if append else "Updated"
+        return f"{action} note: {rel_path}"
+        
+    except Exception as e:
+        return f"Error updating note: {e}"
 
-def create_daily_note(content: str = None) -> str:
+def create_daily_note(content: str = None, vault_path: str = None) -> str:
     """Create today's daily note with optional content."""
-    from datetime import datetime
     today = datetime.now().strftime("%Y-%m-%d")
     
     if content is None:
         content = f"# {today}\n\n## Tasks\n- \n\n## Notes\n\n"
     
-    return create_obsidian_note(today, content, folder="Daily Notes")
+    return create_obsidian_note(today, content, vault_path, "Daily Notes")
 
 def list_recent_notes(vault_path: str = None, limit: int = 10) -> str:
-    """List recently modified notes in Obsidian vault.
-    
-    Args:
-        vault_path: Path to Obsidian vault
-        limit: Number of recent notes to show
-        
-    Returns:
-        String with list of recent notes
-    """
+    """List recently modified notes in Obsidian vault."""
     if vault_path is None:
         vault_path = _find_obsidian_vault()
         if not vault_path:
@@ -296,8 +418,7 @@ def list_recent_notes(vault_path: str = None, limit: int = 10) -> str:
         title = md_file.stem
         
         # Format modification time
-        import datetime
-        mod_date = datetime.datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M")
+        mod_date = datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M")
         
         result_parts.append(f"{i+1}. **{title}**\n   Path: {rel_path}\n   Modified: {mod_date}\n")
     
