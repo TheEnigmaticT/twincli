@@ -6,10 +6,11 @@ from twincli.tools.obsidian import (
     update_obsidian_note,
     create_daily_note
 )
-from twincli.tools.filesystem import write_file, read_file, create_directory
+from twincli.tools.filesystem import write_file, read_file, create_directory, list_directory
 from twincli.tools.browser import browser_tools
 from twincli.tools.task_planner import task_management_tools
 from twincli.tools.memory_journal import memory_tools
+from twincli.tools.tooltool import tooltool_tools
 
 TOOLS = [
     search_web, 
@@ -21,7 +22,9 @@ TOOLS = [
     write_file,
     read_file,
     create_directory,
+    list_directory,
     *browser_tools,
     *task_management_tools,
-    *memory_tools
+    *memory_tools,
+    *tooltool_tools
 ]

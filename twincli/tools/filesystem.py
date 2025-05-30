@@ -1,5 +1,6 @@
 # twincli/tools/filesystem.py
 from pathlib import Path
+import os
 
 def write_file(file_path: str, content: str, append: bool = False) -> str:
     """Write content to a file."""
@@ -27,3 +28,18 @@ def create_directory(dir_path: str) -> str:
         return f"Created directory: {dir_path}"
     except Exception as e:
         return f"Error creating directory: {e}"
+    
+def list_directory(directory_path: str) -> str:
+    """List contents of a directory."""
+    try:
+        items = os.listdir(directory_path)
+        dirs = [f"{item}/" for item in items if os.path.isdir(os.path.join(directory_path, item))]
+        files = [item for item in items if os.path.isfile(os.path.join(directory_path, item))]
+        
+        result = f"Directory: {directory_path}\n\nDirectories:\n"
+        result += "\n".join(f"  {d}" for d in sorted(dirs))
+        result += "\n\nFiles:\n"
+        result += "\n".join(f"  {f}" for f in sorted(files))
+        return result
+    except Exception as e:
+        return f"Error listing directory: {e}"
