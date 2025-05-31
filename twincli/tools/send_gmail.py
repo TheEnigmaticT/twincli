@@ -1,0 +1,128 @@
+
+# twincli/tools/send_gmail.py
+"""
+Sends an email through Gmail using the Gmail API.
+
+Category: communication
+Created: 2025-05-30
+"""
+
+import json
+import os
+from typing import Optional
+
+# --- IMPORTANT SETUP FOR GMAIL API ---
+# This tool requires Google API Client Library for Python and OAuth 2.0 credentials.
+# You need to:
+# 1. Go to Google Cloud Console: https://console.developers.google.com/
+# 2. Create a new project or select an existing one.
+# 3. Enable the Gmail API for your project.
+# 4. Go to "Credentials" -> "OAuth consent screen" and configure it.
+# 5. Go to "Credentials" -> "Create Credentials" -> "OAuth client ID".
+# 6. Select "Desktop app" and create the client ID.
+# 7. Download the `credentials.json` file and place it in a known location (e.g., in your TwinCLI project root or a dedicated config folder).
+# 8. The first time you run a Gmail API call, it will open a browser for authentication.
+#    After successful authentication, a `token.json` file will be created in the same directory as `credentials.json`.
+#    This `token.json` stores your access and refresh tokens and will be used for subsequent calls.
+#
+# Replace 'YOUR_CREDENTIALS_PATH' below with the actual path to your credentials.json file.
+# Example: CREDENTIALS_FILE = os.path.join(os.path.expanduser('~'), '.twincli', 'gmail_credentials.json')
+# For simplicity in this template, we assume it's in the current working directory or a specified path.
+# You might want to make this configurable by the user or a TwinCLI setting.
+
+# from google.oauth2.credentials import Credentials
+# from google_auth_oauthlib.flow import InstalledAppFlow
+# from google.auth.transport.requests import Request
+# from email.mime.text import MIMEText
+# import base64
+# from googleapiclient.discovery import build
+
+# If modifying these scopes, delete the file token.json.
+# SCOPES = ['https://www.googleapis.com/auth/gmail.send']
+
+# def get_gmail_service(credentials_path: str = 'credentials.json'):
+#     creds = None
+#     token_path = os.path.join(os.path.dirname(credentials_path), 'token.json')
+#     
+#     if os.path.exists(token_path):
+#         creds = Credentials.from_authorized_user_file(token_path, SCOPES)
+#     
+#     if not creds or not creds.valid:
+#         if creds and creds.expired and creds.refresh_token:
+#             creds.refresh(Request())
+#         else:
+#             flow = InstalledAppFlow.from_client_secrets_file(credentials_path, SCOPES)
+#             creds = flow.run_local_server(port=0)
+#         with open(token_path, 'w') as token:
+#             token.write(creds.to_json())
+#     
+#     return build('gmail', 'v1', credentials=creds)
+
+def send_gmail(to: str, subject: str, body: str) -> str:
+    """
+    Sends an email through Gmail.
+    
+    Args:
+        to: The recipient's email address.
+        subject: The subject of the email.
+        body: The body content of the email.
+        
+    Returns:
+        A JSON string indicating success or failure.
+    """
+    try:
+        # Placeholder for actual Gmail API call.
+        # Requires 'google-api-python-client' and 'google-auth-oauthlib' libraries.
+        # You need to manually install these: pip install google-api-python-client google-auth-oauthlib
+        
+        # Example of how the logic would roughly look (commented out due to external library dependency):
+        # service = get_gmail_service()
+        #
+        # message = MIMEText(body)
+        # message['to'] = to
+        # message['subject'] = subject
+        # raw_message = base64.urlsafe_b64encode(message.as_bytes()).decode()
+        #
+        # create_message = {'raw': raw_message}
+        # send_message = (service.users().messages().send(userId="me", body=create_message).execute())
+        #
+        # return json.dumps({"status": "success", "message": f"Email sent to {to} with subject '{subject}'."})
+
+        return json.dumps({
+            "status": "warning",
+            "message": "Gmail API functionality is a placeholder. You need to manually set up OAuth 2.0 and install required libraries (google-api-python-client, google-auth-oauthlib) to enable sending emails.",
+            "details": {
+                "to": to,
+                "subject": subject,
+                "body_snippet": body[:50] + "..." if len(body) > 50 else body
+            }
+        })
+
+    except Exception as e:
+        return json.dumps({"status": "error", "message": f"An unexpected error occurred: {e}"})
+
+# Tool registration for TwinCLI
+send_gmail_metadata = {
+    "function": send_gmail,
+    "name": "send_gmail",
+    "description": "Sends an email through Gmail. Requires external setup for OAuth 2.0 authentication and dependencies (google-api-python-client, google-auth-oauthlib).",
+    "category": "communication",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "to": {
+                "type": "string",
+                "description": "The recipient's email address."
+            },
+            "subject": {
+                "type": "string",
+                "description": "The subject of the email."
+            },
+            "body": {
+                "type": "string",
+                "description": "The body content of the email."
+            }
+        },
+        "required": ["to", "subject", "body"]
+    }
+}

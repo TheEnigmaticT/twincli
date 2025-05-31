@@ -6,6 +6,10 @@ from twincli.tools import TOOLS
 from datetime import datetime
 import time
 import random
+from twincli.tools.tooltool import (
+    analyze_tool_need, validate_tool_code, create_tool_template,
+    integrate_new_tool, generate_tool_documentation
+)
 
 console = Console()
 
@@ -429,6 +433,11 @@ def create_function_dispatcher():
         'get_work_context': get_work_context,
         'analyze_my_work_patterns': analyze_my_work_patterns,
         'get_todays_journal': get_todays_journal,
+        'analyze_tool_need': analyze_tool_need,
+        'validate_tool_code': validate_tool_code,
+        'create_tool_template': create_tool_template,
+        'integrate_new_tool': integrate_new_tool,
+        'generate_tool_documentation': generate_tool_documentation
     }
     
     return function_map
