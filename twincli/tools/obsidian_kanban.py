@@ -4,7 +4,7 @@ Enhanced task management system that integrates with Obsidian's kanban plugin.
 Creates proper kanban boards with metadata and provides simple terminal to-do lists.
 
 This builds on the existing task planning but uses the actual Obsidian kanban format
-with proper metadata headers and bidirectional sync between rich boards and terminal.
+with proper metadata headers and writes to the central TwinCLI Projects Kanban.md board.
 """
 
 import json
@@ -67,17 +67,18 @@ class KanbanProject:
         """Add a task to the project."""
         self.tasks.append(task)
         self.updated_at = time.time()
-        self._save_to_obsidian()
+        self._save_to_central_kanban()
         return task.id
     
     def update_task_status(self, task_id: str, new_status: TaskStatus, note: str = ""):
         """Update a task's status."""
         task = self.get_task_by_id(task_id)
         if task:
+            old_status = task.status
             task.status = new_status
             task.updated_at = time.time()
             self.updated_at = time.time()
-            self._save_to_obsidian()
+            self._move_task_in_central_kanban(task.title, old_status.value, new_status.value)
     
     def update_task_subtasks(self, task_id: str, subtasks: List[Dict[str, bool]]):
         """Update subtasks for a task."""
@@ -86,7 +87,7 @@ class KanbanProject:
             task.subtasks = subtasks
             task.updated_at = time.time()
             self.updated_at = time.time()
-            self._save_to_obsidian()
+            self._update_task_note(task)
     
     def get_task_by_id(self, task_id: str) -> Optional[KanbanTask]:
         """Get task by ID."""
@@ -119,57 +120,138 @@ class KanbanProject:
         active_tasks.sort(key=lambda x: (int(x["priority"]), x.get("due_date", "9999-99-99")))
         return active_tasks
     
-    def _save_to_obsidian(self):
-        """Save the current project state to Obsidian as a kanban board."""
+    def _save_to_central_kanban(self):
+        """Save tasks to the central TwinCLI Projects Kanban.md board."""
         if not self.vault_path:
             return
         
-        kanban_content = self._generate_kanban_markdown()
-        note_title = f"TwinCLI Project - {self.project_name}"
+        central_kanban_title = "TwinCLI Projects Kanban"
         
         try:
-            update_obsidian_note(note_title, kanban_content, append=False)
-        except:
-            # If update fails, create new note
-            create_obsidian_note(note_title, kanban_content, folder="TwinCLI-Projects")
+            # Read existing kanban board
+            current_content = read_obsidian_note(central_kanban_title)
+            if "No note found" in current_content:
+                print("❌ TwinCLI Projects Kanban.md not found. Please create it first.")
+                return
+            
+            # Add each new task to the appropriate status section
+            updated_content = current_content
+            for task in self.tasks:
+                # Check if task already exists in the kanban board
+                if f"[[{task.title}]]" not in current_content:
+                    task_line = self._format_task_line(task)
+                    updated_content = self._insert_task_into_section(updated_content, task.status.value, task_line)
+            
+            # Update the central kanban board
+            update_obsidian_note(central_kanban_title, updated_content, append=False)
+            
+            # Create individual task notes
+            self._create_task_notes()
+            
+        except Exception as e:
+            print(f"Error updating central kanban: {e}")
     
-    def _generate_kanban_markdown(self) -> str:
-        """Generate proper Obsidian kanban plugin markdown."""
-        content = f"""---
-kanban-plugin: board
----
-
-# TwinCLI Project: {self.project_name}
-
-**Goal:** {self.goal}
-**Created:** {datetime.fromtimestamp(self.created_at).strftime("%Y-%m-%d %H:%M")}
-**Last Updated:** {datetime.fromtimestamp(self.updated_at).strftime("%Y-%m-%d %H:%M")}
-
-"""
+    def _format_task_line(self, task: KanbanTask) -> str:
+        """Format a task for the kanban board."""
+        task_line = f"- [ ] [[{task.title}]]"
         
-        # Generate kanban columns with proper Obsidian format
-        for status in TaskStatus:
-            tasks_in_status = self.get_tasks_by_status(status)
-            
-            content += f"## {status.value}\n\n"
-            
-            for task in tasks_in_status:
-                # Task card with link format and due date
-                due_date_str = f" {task.due_date}" if task.due_date else ""
-                content += f"- [ ] [[{task.title}]]{due_date_str}\n"
-            
-            content += "\n"
+        if task.due_date:
+            task_line += f" {task.due_date}"
         
-        # Add kanban settings matching your format
-        content += """
-
-%% kanban:settings
-```
-{"kanban-plugin":"board","list-collapse":[false,false,false,false,true],"show-relative-date":true,"metadata-keys":[{"metadataKey":"Priority","label":"Priority","shouldHideLabel":false,"containsMarkdown":false}]}
-```
-%%"""
+        # Add metadata on separate lines with proper indentation
+        metadata_lines = []
+        if task.priority != "2":
+            metadata_lines.append(f"\tPriority:: {task.priority}")
         
-        return content
+        if self.project_name:
+            metadata_lines.append(f"\tProject:: {self.project_name}")
+        
+        for key, value in task.metadata.items():
+            metadata_lines.append(f"\t{key}:: {value}")
+        
+        if metadata_lines:
+            task_line += "\n" + "\n".join(metadata_lines)
+        
+        return task_line
+    
+    def _insert_task_into_section(self, content: str, section: str, task_line: str) -> str:
+        """Insert a task into the specified kanban section."""
+        lines = content.split('\n')
+        
+        for i, line in enumerate(lines):
+            if line.strip() == f"## {section}":
+                # Find insertion point after section header
+                insert_index = i + 1
+                
+                # Skip any section description lines
+                while (insert_index < len(lines) and 
+                       lines[insert_index].strip() and 
+                       not lines[insert_index].startswith('- [') and
+                       not lines[insert_index].startswith('## ')):
+                    insert_index += 1
+                
+                # Insert the task and add a blank line after
+                lines.insert(insert_index, task_line)
+                lines.insert(insert_index + 1, "")
+                break
+        
+        return '\n'.join(lines)
+    
+    def _move_task_in_central_kanban(self, task_title: str, old_status: str, new_status: str):
+        """Move a task from one status to another in the central kanban board."""
+        if not self.vault_path:
+            return
+        
+        central_kanban_title = "TwinCLI Projects Kanban"
+        
+        try:
+            # Read current kanban content
+            current_content = read_obsidian_note(central_kanban_title)
+            if "No note found" in current_content:
+                return
+            
+            # Find and remove task from current location
+            lines = current_content.split('\n')
+            task_line = None
+            task_metadata = []
+            
+            i = 0
+            while i < len(lines):
+                line = lines[i]
+                if f"[[{task_title}]]" in line:
+                    task_line = line
+                    lines.pop(i)  # Remove the task line
+                    
+                    # Remove any metadata lines that follow
+                    while (i < len(lines) and 
+                           lines[i].strip().startswith('\t')):
+                        task_metadata.append(lines.pop(i))
+                    
+                    # Remove any empty line after the task
+                    if i < len(lines) and not lines[i].strip():
+                        lines.pop(i)
+                    
+                    break
+                i += 1
+            
+            if not task_line:
+                print(f"Task '{task_title}' not found in kanban board")
+                return
+            
+            # Reconstruct the full task entry
+            full_task_entry = task_line
+            if task_metadata:
+                full_task_entry += "\n" + "\n".join(task_metadata)
+            
+            # Insert task into new status section
+            updated_content = '\n'.join(lines)
+            final_content = self._insert_task_into_section(updated_content, new_status, full_task_entry)
+            
+            # Update the kanban file
+            update_obsidian_note(central_kanban_title, final_content, append=False)
+            
+        except Exception as e:
+            print(f"Error moving task in kanban: {e}")
     
     def _create_task_notes(self):
         """Create individual task notes with proper metadata and subtasks."""
@@ -179,31 +261,40 @@ kanban-plugin: board
         for task in self.tasks:
             task_content = self._generate_task_note_content(task)
             try:
-                create_obsidian_note(task.title, task_content, folder="TwinCLI-Projects/Tasks")
+                create_obsidian_note(task.title, task_content, folder="TwinCLI/Projects/Tasks")
             except:
                 pass  # Note might already exist
     
     def _generate_task_note_content(self, task: KanbanTask) -> str:
-        """Generate individual task note content with metadata."""
-        # Create frontmatter
+        """Generate individual task note content with proper YAML frontmatter."""
+        
+        # Create proper YAML frontmatter
         frontmatter = ["---"]
         frontmatter.append(f'Priority: "{task.priority}"')
         
-        # Add custom metadata
+        # Add custom metadata in YAML format
         for key, value in task.metadata.items():
             frontmatter.append(f'{key}: "{value}"')
         
+        if task.due_date:
+            frontmatter.append(f'Due: "{task.due_date}"')
+        
+        frontmatter.append(f'Status: "{task.status.value}"')
+        frontmatter.append(f'Project: "{self.project_name}"')
         frontmatter.append("---")
         
         content = [
             "\n".join(frontmatter),
             "",
+            f"# {task.title}",
+            "",
             task.description if task.description else "Task description goes here.",
             ""
         ]
         
-        # Add subtasks if any
+        # Add subtasks
         if task.subtasks:
+            content.append("## Subtasks")
             for subtask in task.subtasks:
                 checkbox = "[x]" if subtask.get("completed", False) else "[ ]"
                 content.append(f"- {checkbox} {subtask['task']}")
@@ -216,6 +307,17 @@ kanban-plugin: board
             ])
         
         return "\n".join(content)
+    
+    def _update_task_note(self, task: KanbanTask):
+        """Update an individual task note."""
+        if not self.vault_path:
+            return
+        
+        try:
+            task_content = self._generate_task_note_content(task)
+            update_obsidian_note(task.title, task_content, append=False)
+        except Exception as e:
+            print(f"Error updating task note: {e}")
 
 # Global project management
 _current_project: Optional[KanbanProject] = None
@@ -257,16 +359,13 @@ def create_terminal_project(project_name: str, goal: str, tasks_json: str) -> st
             )
             _current_project.add_task(task)
         
-        # Create individual task notes
-        _current_project._create_task_notes()
-        
         return f"""📋 **Terminal Project Created**
 **Project:** {project_name}
 **Goal:** {goal}
 **Tasks:** {len(_current_project.tasks)}
 
-🎯 **Full kanban board created in Obsidian**
-📝 **Individual task notes created with metadata**
+🎯 **Tasks added to central TwinCLI Projects Kanban.md**
+📝 **Individual task notes created with proper YAML frontmatter**
 
 {get_simple_todo_list()}"""
         
@@ -329,7 +428,7 @@ def get_simple_todo_list() -> str:
     result.append("💡 **Tips:**")
     result.append("• Use move_task_to_status() to update progress")
     result.append("• Use complete_subtask() to check off sub-items")
-    result.append("• Full kanban board available in Obsidian")
+    result.append("• Full kanban board available in Obsidian at TwinCLI/Projects/TwinCLI Projects Kanban.md")
     
     return "\n".join(result)
 
@@ -375,7 +474,7 @@ def move_task_to_status(task_id: str, new_status: str) -> str:
 **Task:** {task.title}
 **New Status:** {status.value}
 
-📋 **Updated kanban board in Obsidian**
+📋 **Updated central kanban board and task note**
 
 {get_simple_todo_list()}"""
         
@@ -483,25 +582,24 @@ def get_project_summary() -> str:
 **Next Actions:**
 • Focus on {in_progress} active tasks
 • {planning} tasks ready to start
-• Full kanban board in Obsidian for visual management
+• Central kanban board: TwinCLI/Projects/TwinCLI Projects Kanban.md
 
 ⏱️ **Active since:** {datetime.fromtimestamp(_current_project.created_at).strftime("%Y-%m-%d %H:%M")}"""
 
 def sync_from_obsidian(project_name: str) -> str:
     """Sync project state from Obsidian kanban board (manual refresh)."""
     try:
-        note_title = f"TwinCLI Project - {project_name}"
-        note_content = read_obsidian_note(note_title)
+        central_kanban_content = read_obsidian_note("TwinCLI Projects Kanban")
         
-        if "No note found" in note_content:
-            return f"No kanban project found with name: {project_name}"
+        if "No note found" in central_kanban_content:
+            return f"No central kanban board found. Please create TwinCLI Projects Kanban.md"
         
-        return f"""🔄 **Sync from Obsidian**
-**Project:** {project_name}
+        return f"""🔄 **Sync from Central Kanban**
+**Board:** TwinCLI Projects Kanban.md
 **Status:** Manual sync completed
 
-Note: This is a placeholder for parsing Obsidian changes back to TwinCLI.
-Full bidirectional sync would parse the kanban markdown and update internal state.
+Note: This reads the current state of your central kanban board.
+The board is automatically updated when you use TwinCLI functions.
 
 {get_simple_todo_list()}"""
         

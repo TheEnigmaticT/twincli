@@ -18,6 +18,8 @@ from twincli.tools.enhanced_search import enhanced_search_tools     # NEW: Enhan
 from twincli.tools.research_orchestrator import research_tools      # NEW: Research orchestrator
 from twincli.tools.send_gmail import send_gmail
 from twincli.tools.read_gmail_inbox import read_gmail_inbox
+from twincli.tools.context_compression import initialize_session_with_kanban_state
+from twincli.tools.analysis_output import save_analysis_report, save_data_summary
 
 TOOLS = [
     search_web, 
@@ -30,6 +32,7 @@ TOOLS = [
     read_file,
     create_directory,
     list_directory,
+    save_analysis_report,
     *browser_tools,
     *task_management_tools,
     *memory_tools,
@@ -41,4 +44,5 @@ TOOLS = [
     *research_tools,            # NEW: comprehensive_research
     send_gmail,
     read_gmail_inbox,
+    initialize_session_with_kanban_state,
 ]

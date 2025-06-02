@@ -10,6 +10,10 @@ from twincli.tools.tooltool import (
     analyze_tool_need, validate_tool_code, create_tool_template,
     integrate_new_tool, generate_tool_documentation
 )
+from twincli.tools.context_compression import (
+    ContextCompressor, ConversationTracker, enhanced_safe_api_call,
+    initialize_session_with_kanban_state
+)
 
 console = Console()
 
@@ -356,6 +360,20 @@ For **COMPLEX TASKS** (multi-step projects, automation):
 5. Document results and lessons learned
 6. Suggest follow-up actions or improvements
 
+**DELIVERABLE REQUIREMENTS:**
+For analysis, research, or synthesis tasks:
+1. **Always present findings in chat first** - Show your complete analysis to the user
+2. **Save important results to files** - Use save_analysis_report() to create persistent deliverables
+3. **Place files logically** - Save analysis reports in the same directory as source data when possible
+4. **Verify delivery** - Only mark tasks complete after confirming the user received the results
+
+**ANALYSIS TASK PATTERN:**
+1. Complete your analysis
+2. Present findings in chat with clear formatting
+3. Save detailed report to file using save_analysis_report()
+4. Confirm both chat delivery and file creation
+5. Only then mark the task as complete
+
 ## Communication Style
 
 - **Clear and direct** - avoid unnecessary verbosity
@@ -468,6 +486,14 @@ def create_function_dispatcher():
     except ImportError:
         pass
     
+    # Analysis output tool
+    try:
+        from twincli.tools.analysis_output import save_analysis_report, save_data_summary
+        function_map['save_analysis_report'] = save_analysis_report,
+        function_map['save_data_summary'] = save_data_summary,
+    except ImportError:
+        pass
+
     # Memory and journal tools
     try:
         from twincli.tools.memory_journal import (
@@ -573,7 +599,7 @@ def create_function_dispatcher():
     
     # Project management tools (if they exist)
     try:
-        from twincli.tools.project_manager import (
+        from twincli.tools.obsidian_kanban import (
             create_terminal_project, get_simple_todo_list, move_task_to_status,
             complete_subtask, add_subtask, get_project_summary, sync_from_obsidian
         )
@@ -641,7 +667,67 @@ def create_function_dispatcher():
         # If dynamic discovery fails, just continue with what we have
         pass
     
+    
+    
     return function_map
+
+# Add this simple function to your repl.py
+
+def debug_function_dispatcher():
+    """Debug version that logs everything it finds."""
+    print("=== DEBUGGING FUNCTION DISPATCHER ===")
+    
+    # Get the current dispatcher
+    current_functions = create_function_dispatcher()
+    
+    print(f"Total functions found: {len(current_functions)}")
+    print("\nAll functions:")
+    
+    for i, func_name in enumerate(sorted(current_functions.keys()), 1):
+        print(f"{i:2d}. {func_name}")
+    
+    # Also try to scan the tools directory manually
+    print("\n=== TOOLS DIRECTORY SCAN ===")
+    import os
+    import importlib
+    
+    tools_dir = os.path.join(os.path.dirname(__file__), 'tools')
+    print(f"Scanning: {tools_dir}")
+    
+    if os.path.exists(tools_dir):
+        py_files = [f for f in os.listdir(tools_dir) if f.endswith('.py') and not f.startswith('__')]
+        print(f"Python files found: {sorted(py_files)}")
+        
+        for py_file in sorted(py_files):
+            module_name = py_file[:-3]
+            print(f"\nChecking {module_name}:")
+            
+            try:
+                module = importlib.import_module(f'twincli.tools.{module_name}')
+                
+                # Find all callable functions
+                functions_in_module = []
+                for attr_name in dir(module):
+                    if not attr_name.startswith('_'):
+                        attr = getattr(module, attr_name)
+                        if callable(attr):
+                            functions_in_module.append(attr_name)
+                
+                print(f"  Callable functions: {functions_in_module}")
+                
+                # Check which ones have docstrings
+                with_docs = []
+                for func_name in functions_in_module:
+                    func = getattr(module, func_name)
+                    if hasattr(func, '__doc__') and func.__doc__:
+                        with_docs.append(func_name)
+                
+                print(f"  With docstrings: {with_docs}")
+                
+            except Exception as e:
+                print(f"  ERROR importing: {e}")
+    
+    return current_functions
 
 def auto_log_tool_usage(function_name, function_args, result, function_dispatcher):
     """Automatically log tool usage for better journal tracking."""
@@ -683,6 +769,10 @@ def start_repl():
     
     # Create function dispatcher
     function_dispatcher = create_function_dispatcher()
+
+    # NEW: Initialize compression system
+    compressor = ContextCompressor(None)  # Will set model after creation
+    tracker = ConversationTracker()
     
     # Debug: Check what tools we're loading
     console.print(f"[dim]Loading {len(TOOLS)} tools: {[getattr(tool, '__name__', str(tool)) for tool in TOOLS]}[/dim]")

@@ -128,8 +128,14 @@ def create_task_plan(goal: str, tasks_json: str) -> str:
                 description=task_data.get("description", ""),
                 tools_needed=task_data.get("tools_needed", []),
                 dependencies=task_data.get("dependencies", [])
-            )
-        
+            )        
+           
+        # For synthesis tasks, add a reminder about deliverables
+        for task_data in tasks_data:
+            if "synthesize" in task_data.get("title", "").lower():
+                if "deliverable" not in task_data.get("description", ""):
+                    task_data["description"] += "\n\nIMPORTANT: This task must produce a deliverable file using save_analysis_report()."
+
         # Log to Obsidian journal
         try:
             from twincli.tools.memory_journal import log_plan_to_journal
