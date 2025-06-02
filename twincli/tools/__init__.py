@@ -1,4 +1,4 @@
-from twincli.tools.search import search_web
+from twincli.tools.enhanced_search import search_web
 from twincli.tools.obsidian import (
     search_obsidian, 
     read_obsidian_note, 
@@ -11,13 +11,13 @@ from twincli.tools.browser import browser_tools
 from twincli.tools.task_planner import task_management_tools
 from twincli.tools.memory_journal import memory_tools
 from twincli.tools.tooltool import tooltool_tools
-from twincli.tools.obsidian_kanban import terminal_kanban_tools
 from twincli.tools.explain_git_action import explain_git_action
-from twincli.tools.execute_git_command import execute_git_command
+from twincli.tools.enhanced_git_command import enhanced_git_tools  # NEW: Enhanced Git tools
+from twincli.tools.smart_path_finder import smart_path_tools        # NEW: Smart path resolution
+from twincli.tools.enhanced_search import enhanced_search_tools     # NEW: Enhanced search
+from twincli.tools.research_orchestrator import research_tools      # NEW: Research orchestrator
 from twincli.tools.send_gmail import send_gmail
 from twincli.tools.read_gmail_inbox import read_gmail_inbox
-from twincli.tools.delete_file import delete_file
-from twincli.tools.delete_directory import delete_directory
 
 TOOLS = [
     search_web, 
@@ -34,11 +34,11 @@ TOOLS = [
     *task_management_tools,
     *memory_tools,
     *tooltool_tools,
-    *terminal_kanban_tools,
     explain_git_action,
-    execute_git_command,
+    *enhanced_git_tools,        # NEW: smart_git_command, quick_git_operations
+    *smart_path_tools,          # NEW: smart_find_path, resolve_path_intelligently, smart_git_path_resolver
+    *enhanced_search_tools,     # NEW: intelligent_search
+    *research_tools,            # NEW: comprehensive_research
     send_gmail,
     read_gmail_inbox,
-    delete_file,
-    delete_directory,
 ]

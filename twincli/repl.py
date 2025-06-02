@@ -375,7 +375,7 @@ def create_function_dispatcher():
     dispatcher = {}
     
     # Import all the tool modules and map function names to actual functions
-    from twincli.tools.search import search_web
+    from twincli.tools.enhanced_search import search_web
     from twincli.tools.obsidian import (
         search_obsidian, read_obsidian_note, create_obsidian_note,
         update_obsidian_note, create_daily_note, list_recent_notes
@@ -405,9 +405,12 @@ def create_function_dispatcher():
     )
     from twincli.tools.filesystem import write_file, read_file, create_directory, list_directory
     from twincli.tools.explain_git_action import explain_git_action
-    from twincli.tools.execute_git_command import execute_git_command  
     from twincli.tools.send_gmail import send_gmail
     from twincli.tools.read_gmail_inbox import read_gmail_inbox
+    from twincli.tools.enhanced_git_command import smart_git_command, quick_git_operations
+    from twincli.tools.smart_path_finder import smart_find_path, resolve_path_intelligently, smart_git_path_resolver
+    from twincli.tools.enhanced_search import intelligent_search
+    from twincli.tools.research_orchestrator import comprehensive_research
 
     function_map = {
         'search_web': search_web,
@@ -462,9 +465,15 @@ def create_function_dispatcher():
         'get_workspace_summary': get_workspace_summary,
         # Add the missing ones:
         'explain_git_action': explain_git_action,
-        'execute_git_command': execute_git_command,
         'send_gmail': send_gmail,
         'read_gmail_inbox': read_gmail_inbox,
+        'smart_git_command': smart_git_command,
+        'quick_git_operations': quick_git_operations,
+        'smart_find_path': smart_find_path,
+        'resolve_path_intelligently': resolve_path_intelligently,
+        'smart_git_path_resolver': smart_git_path_resolver,
+        'intelligent_search': intelligent_search,
+        'comprehensive_research': comprehensive_research,
     }
     
     return function_map
