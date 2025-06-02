@@ -396,8 +396,19 @@ def create_function_dispatcher():
         log_reasoning, log_tool_action, get_work_context,
         analyze_my_work_patterns, get_todays_journal
     )
-    
-    # Map function names to actual functions
+    from twincli.tools.obsidian_kanban import (
+        create_terminal_project, get_simple_todo_list, move_task_to_status,
+        complete_subtask, add_subtask, get_project_summary, sync_from_obsidian
+    )
+    from twincli.tools.obsidian_structure import (
+        initialize_twincli_workspace, document_new_tool, get_workspace_summary
+    )
+    from twincli.tools.filesystem import write_file, read_file, create_directory, list_directory
+    from twincli.tools.explain_git_action import explain_git_action
+    from twincli.tools.execute_git_command import execute_git_command  
+    from twincli.tools.send_gmail import send_gmail
+    from twincli.tools.read_gmail_inbox import read_gmail_inbox
+
     function_map = {
         'search_web': search_web,
         'search_obsidian': search_obsidian,
@@ -408,6 +419,7 @@ def create_function_dispatcher():
         'list_recent_notes': list_recent_notes,
         'write_file': write_file,
         'read_file': read_file,
+        'list_directory': list_directory,
         'create_directory': create_directory,
         'open_browser_tab': open_browser_tab,
         'get_page_info': get_page_info,
@@ -437,7 +449,22 @@ def create_function_dispatcher():
         'validate_tool_code': validate_tool_code,
         'create_tool_template': create_tool_template,
         'integrate_new_tool': integrate_new_tool,
-        'generate_tool_documentation': generate_tool_documentation
+        'generate_tool_documentation': generate_tool_documentation,
+        'create_terminal_project': create_terminal_project,
+        'get_simple_todo_list': get_simple_todo_list,
+        'move_task_to_status': move_task_to_status,
+        'complete_subtask': complete_subtask,
+        'add_subtask': add_subtask,
+        'get_project_summary': get_project_summary,
+        'sync_from_obsidian': sync_from_obsidian,
+        'initialize_twincli_workspace': initialize_twincli_workspace,
+        'document_new_tool': document_new_tool,
+        'get_workspace_summary': get_workspace_summary,
+        # Add the missing ones:
+        'explain_git_action': explain_git_action,
+        'execute_git_command': execute_git_command,
+        'send_gmail': send_gmail,
+        'read_gmail_inbox': read_gmail_inbox,
     }
     
     return function_map

@@ -1,15 +1,15 @@
-
 # twincli/tools/execute_git_command.py
 """
 Executes common Git commands safely.
 
 Category: version_control
 Created: 2025-05-30
+Fixed: 2025-06-01 - Handle protobuf RepeatedComposite args
 """
 
 import subprocess
 import json
-from typing import Optional, List
+from typing import Optional, List, Any
 
 def execute_git_command(command: str, args: Optional[List[str]] = None, repo_path: Optional[str] = None) -> str:
     """
@@ -23,8 +23,12 @@ def execute_git_command(command: str, args: Optional[List[str]] = None, repo_pat
     Returns:
         A JSON string containing the stdout, stderr, and return code of the Git command execution.
     """
+    # Convert args to a proper list, handling protobuf RepeatedComposite objects
     if args is None:
         args = []
+    else:
+        # Convert to list to handle both regular lists and protobuf RepeatedComposite
+        args = list(args)
 
     git_command = ["git", command] + args
     

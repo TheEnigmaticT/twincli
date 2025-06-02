@@ -318,13 +318,14 @@ def {safe_tool_name}(param1: str, param2: Optional[str] = None) -> str:
 def integrate_new_tool(tool_name: str, tool_code: str) -> str:
     """
     Integrate a new tool into TwinCLI by writing the file and updating __init__.py.
+    Now also creates comprehensive Obsidian documentation.
     
     Args:
         tool_name: Name of the tool
         tool_code: Complete Python code for the tool
         
     Returns:
-        Integration result
+        Integration result with Obsidian documentation status
     """
     try:
         # Sanitize tool name
@@ -383,6 +384,25 @@ def integrate_new_tool(tool_name: str, tool_code: str) -> str:
             with open(init_file_path, 'w', encoding='utf-8') as f:
                 f.write(updated_content)
         
+        # Step 3: Extract tool information for documentation
+        function_signature, description, category = _extract_tool_info(tool_code, safe_tool_name)
+        
+        # Step 4: Create Obsidian documentation
+        obsidian_result = ""
+        try:
+            from twincli.tools.obsidian_structure import document_new_tool
+            obsidian_result = document_new_tool(
+                tool_name=safe_tool_name,
+                function_signature=function_signature,
+                description=description,
+                category=category,
+                examples=[f"{safe_tool_name}('example_input')"]
+            )
+        except ImportError:
+            obsidian_result = "⚠️ Obsidian documentation not available (obsidian_structure not imported)"
+        except Exception as e:
+            obsidian_result = f"⚠️ Obsidian documentation failed: {e}"
+        
         return f"""
 ✅ **TOOL INTEGRATION SUCCESSFUL**
 
@@ -390,16 +410,70 @@ def integrate_new_tool(tool_name: str, tool_code: str) -> str:
 **File Created:** {tool_file_path}
 **Registration:** Added to TOOLS list in __init__.py
 
+📚 **Obsidian Documentation:**
+{obsidian_result}
+
 **Next Steps:**
 1. Restart TwinCLI (or trigger reload if using -e flag)
 2. Test the new tool with a sample call
 3. Verify tool appears in available functions
+4. Check documentation in Obsidian Tools folder
 
 **Tool is now ready for use!**
 """
         
     except Exception as e:
         return f"❌ Tool integration failed: {e}"
+
+def _extract_tool_info(tool_code: str, tool_name: str) -> tuple:
+    """Extract function signature, description, and category from tool code."""
+    try:
+        import ast
+        tree = ast.parse(tool_code)
+        
+        function_signature = f"def {tool_name}():"
+        description = f"A tool that performs {tool_name} operations"
+        category = "utility"
+        
+        # Find the main function
+        for node in ast.walk(tree):
+            if isinstance(node, ast.FunctionDef) and (node.name == tool_name or node.name.endswith('_tool')):
+                # Extract function signature
+                args = []
+                for arg in node.args.args:
+                    arg_name = arg.arg
+                    arg_type = ast.unparse(arg.annotation) if arg.annotation else "Any"
+                    args.append(f"{arg_name}: {arg_type}")
+                
+                return_type = ast.unparse(node.returns) if node.returns else "str"
+                function_signature = f"def {node.name}({', '.join(args)}) -> {return_type}:"
+                
+                # Extract docstring for description
+                if (node.body and 
+                    isinstance(node.body[0], ast.Expr) and
+                    isinstance(node.body[0].value, ast.Constant) and
+                    isinstance(node.body[0].value.value, str)):
+                    description = node.body[0].value.value.strip()
+                
+                break
+        
+        # Try to determine category from code content
+        code_lower = tool_code.lower()
+        if any(keyword in code_lower for keyword in ['web', 'http', 'request', 'browser']):
+            category = "web"
+        elif any(keyword in code_lower for keyword in ['file', 'read', 'write', 'path']):
+            category = "filesystem" 
+        elif any(keyword in code_lower for keyword in ['git', 'commit', 'repo']):
+            category = "version_control"
+        elif any(keyword in code_lower for keyword in ['email', 'message', 'send']):
+            category = "communication"
+        elif any(keyword in code_lower for keyword in ['obsidian', 'note', 'markdown']):
+            category = "documentation"
+        
+        return function_signature, description, category
+        
+    except Exception:
+        return f"def {tool_name}():", f"A tool that performs {tool_name} operations", "utility"
 
 def generate_tool_documentation(tool_name: str, tool_file_path: str = None) -> str:
     """

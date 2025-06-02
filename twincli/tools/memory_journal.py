@@ -16,7 +16,7 @@ from twincli.tools.obsidian import (
 class WorkJournal:
     def __init__(self):
         self.vault_path = _find_obsidian_vault()
-        self.journal_folder = "TwinCLI-Journal"
+        self.journal_folder = "TwinCLI/Journal"
         self.today = date.today()
         self.today_str = self.today.strftime("%Y-%m-%d")
         self.current_session_id = f"session_{int(time.time())}"
@@ -25,86 +25,86 @@ class WorkJournal:
         """Get the path for today's journal note."""
         return f"{self.journal_folder}/{self.today_str}-TwinCLI-Work"
         
-def initialize_daily_journal(self) -> str:
-    """Create or update today's journal note."""
-    journal_title = f"{self.today_str}-TwinCLI-Work"
-    
-    # Check if today's journal already exists
-    existing_content = ""
-    try:
-        existing_result = read_obsidian_note(journal_title)
-        if "No note found" not in existing_result:
-            # Extract existing content after the header
-            lines = existing_result.split('\n')
-            content_start = 0
-            
-            # Find where the actual session content starts
-            for i, line in enumerate(lines):
-                if line.strip().startswith('## Session'):
-                    content_start = i
-                    break
-                # Also look for other entry patterns that might exist
-                elif line.strip().startswith('### ') or line.strip().startswith('#### '):
-                    content_start = i
-                    break
-            
-            if content_start > 0:
-                # Get the existing content and clean up any leading empty lines
-                session_lines = lines[content_start:]
-                # Remove leading empty lines
-                while session_lines and not session_lines[0].strip():
-                    session_lines.pop(0)
-                # Remove trailing empty lines  
-                while session_lines and not session_lines[-1].strip():
-                    session_lines.pop()
+    def initialize_daily_journal(self) -> str:
+        """Create or update today's journal note."""
+        journal_title = f"{self.today_str}-TwinCLI-Work"
+        
+        # Check if today's journal already exists
+        existing_content = ""
+        try:
+            existing_result = read_obsidian_note(journal_title)
+            if "No note found" not in existing_result:
+                # Extract existing content after the header
+                lines = existing_result.split('\n')
+                content_start = 0
                 
-                if session_lines:  # Only add if there's actual content
-                    existing_content = '\n'.join(session_lines)
-    except Exception:
-        pass
-    
-    # Create new journal template - no leading newlines in the template
-    template_lines = [
-        f"# TwinCLI Work Journal - {self.today_str}",
-        "",
-        "#twincli #work-journal #ai-assistant",
-        "",
-        f"**Date:** {self.today_str}",
-        f"**Vault:** [[{Path(self.vault_path).name if self.vault_path else 'Unknown'}]]",
-        "",
-        "---",
-        "",
-        "## Quick Reference",
-        "- Use `#task-planning` for planning sessions",
-        "- Use `#completed` for finished tasks",
-        "- Use `#research` for information gathering", 
-        "- Use `#writing` for content creation",
-        "- Use `#automation` for browser/system tasks",
-        "- Use `#failed` for unsuccessful attempts",
-        "",
-        "---",
-        ""
-    ]
-    
-    # Add existing content or default session start
-    if existing_content:
-        template_lines.append(existing_content)
-    else:
-        template_lines.extend([
-            f"## Session {self.current_session_id}",
-            f"**Started:** {datetime.now().strftime('%H:%M')}"
-        ])
-    
-    # Join without any leading empty lines
-    template = '\n'.join(template_lines)
-    
-    result = create_obsidian_note(
-        title=journal_title,
-        content=template,
-        folder=self.journal_folder
-    )
-    
-    return f"📓 Daily journal initialized: {journal_title}\n{result}"
+                # Find where the actual session content starts
+                for i, line in enumerate(lines):
+                    if line.strip().startswith('## Session'):
+                        content_start = i
+                        break
+                    # Also look for other entry patterns that might exist
+                    elif line.strip().startswith('### ') or line.strip().startswith('#### '):
+                        content_start = i
+                        break
+                
+                if content_start > 0:
+                    # Get the existing content and clean up any leading empty lines
+                    session_lines = lines[content_start:]
+                    # Remove leading empty lines
+                    while session_lines and not session_lines[0].strip():
+                        session_lines.pop(0)
+                    # Remove trailing empty lines  
+                    while session_lines and not session_lines[-1].strip():
+                        session_lines.pop()
+                    
+                    if session_lines:  # Only add if there's actual content
+                        existing_content = '\n'.join(session_lines)
+        except Exception:
+            pass
+        
+        # Create new journal template - no leading newlines in the template
+        template_lines = [
+            f"# TwinCLI Work Journal - {self.today_str}",
+            "",
+            "#twincli #work-journal #ai-assistant",
+            "",
+            f"**Date:** {self.today_str}",
+            f"**Vault:** [[{Path(self.vault_path).name if self.vault_path else 'Unknown'}]]",
+            "",
+            "---",
+            "",
+            "## Quick Reference",
+            "- Use `#task-planning` for planning sessions",
+            "- Use `#completed` for finished tasks",
+            "- Use `#research` for information gathering", 
+            "- Use `#writing` for content creation",
+            "- Use `#automation` for browser/system tasks",
+            "- Use `#failed` for unsuccessful attempts",
+            "",
+            "---",
+            ""
+        ]
+        
+        # Add existing content or default session start
+        if existing_content:
+            template_lines.append(existing_content)
+        else:
+            template_lines.extend([
+                f"## Session {self.current_session_id}",
+                f"**Started:** {datetime.now().strftime('%H:%M')}"
+            ])
+        
+        # Join without any leading empty lines
+        template = '\n'.join(template_lines)
+        
+        result = create_obsidian_note(
+            title=journal_title,
+            content=template,
+            folder=self.journal_folder
+        )
+        
+        return f"📓 Daily journal initialized: {journal_title}\n{result}"
     
     def log_plan_creation(self, goal: str, tasks: List[Dict], plan_id: str) -> str:
         """Log a new task plan to today's journal."""
@@ -317,11 +317,11 @@ def log_task_progress(task_id: str, task_title: str, status: str, details: str =
 
 def log_reasoning(context: str, thoughts: str) -> str:
     """Log AI thinking and decision-making process."""
-    return _work_journal.log_thinking(context, thoughts)
+    return _work_journal.log_thinking(context, thoughts)  # Was log_reasoning
 
 def log_tool_action(tool_name: str, purpose: str, result_summary: str) -> str:
     """Log tool usage and outcomes."""
-    return _work_journal.log_tool_usage(tool_name, purpose, result_summary)
+    return _work_journal.log_tool_usage(tool_name, purpose, result_summary)  # This looks correct
 
 def get_work_context(days: int = 3) -> str:
     """Get recent work context to inform current decisions."""
