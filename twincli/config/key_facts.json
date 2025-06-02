@@ -1,0 +1,19 @@
+{
+    "kanban_aliases": {
+        "your": "/home/tlongino/Documents/CrowdTamers Obsidian Vault/TwinCLI/Projects/TwinCLI Projects Kanban.md",
+        "my": "/home/tlongino/Documents/CrowdTamers Obsidian Vault/CrowdTamers/Projects/Trevor's Task List.md",
+        "your to-do list": "/home/tlongino/Documents/CrowdTamers Obsidian Vault/TwinCLI/Projects/TwinCLI Projects Kanban.md",
+        "my to-do list": "/home/tlongino/Documents/CrowdTamers Obsidian Vault/CrowdTamers/Projects/Trevor's Task List.md"
+    },
+    "general_preferences": {
+        "default_vault_path": "/home/tlongino/Documents/CrowdTamers Obsidian Vault",
+        "favorite_color": "blue"
+    },
+    "tool_settings": {
+        "search_web_default_results": 5,
+        "logging_level": "INFO"
+    },
+    "general_memory": {
+        "test_fact": "This is a test fact for persistence."
+    }
+}

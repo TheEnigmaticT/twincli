@@ -13,6 +13,12 @@ from twincli.tools.obsidian import (
     search_obsidian
 )
 
+# Import the new config loader
+from twincli.utils.config_loader import load_key_facts, save_key_facts
+
+# Global variable to store loaded key facts
+_KEY_FACTS: Dict = {}
+
 class WorkJournal:
     def __init__(self):
         self.vault_path = _find_obsidian_vault()
@@ -166,29 +172,11 @@ class WorkJournal:
     
     def log_thinking(self, context: str, thoughts: str) -> str:
         """Log AI reasoning and decision-making process."""
-        timestamp = datetime.now().strftime("%H:%M")
-        
-        log_entry = f"""
-#### 🧠 Thinking Process - {timestamp}
-**Context:** {context}  
-**Tags:** #reasoning #decision-making
+        return _work_journal.log_thinking(context, thoughts)  # Was log_reasoning
 
-**Analysis:**
-{thoughts}
-"""
-        return self._append_to_journal(log_entry)
-    
-    def log_tool_usage(self, tool_name: str, purpose: str, result_summary: str) -> str:
-        """Log when tools are used and their outcomes."""
-        timestamp = datetime.now().strftime("%H:%M")
-        
-        log_entry = f"""
-#### 🔧 Tool Used: {tool_name} - {timestamp}
-**Purpose:** {purpose}  
-**Result:** {result_summary}  
-**Tags:** #tool-usage #{tool_name.replace('_', '-')}
-"""
-        return self._append_to_journal(log_entry)
+def log_tool_action(tool_name: str, purpose: str, result_summary: str) -> str:
+    """Log tool usage and outcomes."""
+    return _work_journal.log_tool_usage(tool_name, purpose, result_summary)  # This looks correct
     
     def _append_to_journal(self, content: str) -> str:
         """Append content to today's journal."""
@@ -260,7 +248,7 @@ class WorkJournal:
             return f"❌ Could not retrieve work context: {e}"
     
     def analyze_work_patterns(self) -> str:
-        """Analyze work patterns and provide insights."""
+        """Analyze work patterns from journal entries."""
         try:
             # Search for different types of work
             patterns = {
@@ -292,8 +280,13 @@ _work_journal = WorkJournal()
 
 def initialize_work_session() -> str:
     """Initialize today's work session and journal."""
-    global _work_journal
+    global _work_journal, _KEY_FACTS
     _work_journal = WorkJournal()  # Refresh with current date
+    
+    # Load key facts at the beginning of the session
+    _KEY_FACTS = load_key_facts()
+    print(f"Loaded Key Facts: {_KEY_FACTS}") # For debugging/confirmation
+
     return _work_journal.initialize_daily_journal()
 
 def log_plan_to_journal(goal: str, tasks_json: str, plan_id: str) -> str:
@@ -316,7 +309,7 @@ def log_task_progress(task_id: str, task_title: str, status: str, details: str =
         return f"❌ Unknown status: {status}"
 
 def log_reasoning(context: str, thoughts: str) -> str:
-    """Log AI thinking and decision-making process."""
+    """Log AI reasoning and decision-making process."""
     return _work_journal.log_thinking(context, thoughts)  # Was log_reasoning
 
 def log_tool_action(tool_name: str, purpose: str, result_summary: str) -> str:
