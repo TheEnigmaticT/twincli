@@ -211,37 +211,61 @@ def _interpret_git_success(command: str, stdout: str, args: List[str]) -> str:
         return f"✅ Git {command} completed successfully"
 
 
-def quick_git_operations(operation: str, repo_path: str, commit_message: Optional[str] = None) -> str:
+def quick_git_operations(operation: str, repo_path: str, commit_message: Optional[str] = None, auto_generate_message: bool = True) -> str:
     """
     Perform common Git operations with a single command.
     
     Args:
         operation: "stage_all", "commit_all", "push", "pull", "status", or "full_commit_push"
         repo_path: Path to the Git repository
-        commit_message: Commit message (required for commit operations)
+        commit_message: Commit message (if None and auto_generate_message=True, will be generated automatically)
+        auto_generate_message: Whether to automatically generate commit messages based on file changes
         
     Returns:
         Combined results of the Git operations
     """
     results = []
     
+    # Import the smart commit message generator
+    try:
+        from twincli.tools.smart_commit_message import analyze_git_changes, smart_commit_with_analysis
+        smart_commit_available = True
+    except ImportError:
+        smart_commit_available = False
+    
     if operation == "stage_all":
         result = smart_git_command("add", ["."], repo_path)
         results.append(("Stage All", result))
     
     elif operation == "commit_all":
-        if not commit_message:
-            return json.dumps({"error": "Commit message is required for commit operations"})
-        
-        # Stage all changes first
-        stage_result = smart_git_command("add", ["."], repo_path)
-        results.append(("Stage All", stage_result))
-        
-        # Then commit
-        commit_result = smart_git_command("commit", ["-m", commit_message], repo_path)
-        results.append(("Commit", commit_result))
+        if not commit_message and auto_generate_message and smart_commit_available:
+            # Use smart commit with analysis
+            result = smart_commit_with_analysis(repo_path, commit_message)
+            results.append(("Smart Commit", result))
+        else:
+            if not commit_message:
+                commit_message = f"Auto-commit: Updates from {os.getlogin()} on {os.uname().nodename}"
+            
+            # Stage all changes first
+            stage_result = smart_git_command("add", ["."], repo_path)
+            results.append(("Stage All", stage_result))
+            
+            # Then commit
+            commit_result = smart_git_command("commit", ["-m", commit_message], repo_path)
+            results.append(("Commit", commit_result))
     
     elif operation == "full_commit_push":
+        if not commit_message and auto_generate_message and smart_commit_available:
+            # Analyze changes first to generate a good commit message
+            analysis_result = analyze_git_changes(repo_path)
+            try:
+                analysis_data = json.loads(analysis_result)
+                if analysis_data.get("success"):
+                    commit_message = analysis_data["suggested_commit_message"]
+                    results.append(("Change Analysis", analysis_result))
+            except:
+                pass
+        
         if not commit_message:
             commit_message = f"Auto-commit: Updates from {os.getlogin()} on {os.uname().nodename}"
         
@@ -273,19 +297,25 @@ def quick_git_operations(operation: str, repo_path: str, commit_message: Optiona
         "operation": operation,
         "repo_path": repo_path,
         "steps_completed": len(results),
-        "results": {}
+        "results": {},
+        "commit_message_used": commit_message if commit_message else None
     }
     
     for step_name, step_result in results:
         try:
             step_data = json.loads(step_result)
             compiled_results["results"][step_name] = {
-                "success": step_data.get("returncode", -1) == 0,
+                "success": step_data.get("returncode", -1) == 0 or step_data.get("success", False),
                 "command": step_data.get("command", ""),
-                "output": step_data.get("stdout", ""),
-                "error": step_data.get("stderr", ""),
+                "output": step_data.get("stdout", "") or step_data.get("commit_output", ""),
+                "error": step_data.get("stderr", "") or step_data.get("error", ""),
                 "help": step_data.get("error_help", "") or step_data.get("success_info", "")
             }
+            
+            # Extract commit message if this was a smart commit
+            if step_name == "Smart Commit" and step_data.get("commit_message_used"):
+                compiled_results["commit_message_used"] = step_data["commit_message_used"]
+                
         except:
             compiled_results["results"][step_name] = {
                 "success": False,
@@ -301,3 +331,10 @@ enhanced_git_tools = [
     smart_git_command,
     quick_git_operations
 ]
+
+# Also import and re-export smart commit tools
+try:
+    from twincli.tools.smart_commit_message import smart_commit_tools
+    enhanced_git_tools.extend(smart_commit_tools)
+except ImportError:
+    pass

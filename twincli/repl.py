@@ -371,110 +371,272 @@ For **COMPLEX TASKS** (multi-step projects, automation):
 Remember: You're not just answering queries—you're serving as an intelligent, persistent partner in achieving the user's goals. Think strategically, act systematically, and always consider the bigger picture while maintaining meticulous attention to detail."""
 
 def create_function_dispatcher():
-    """Create a dynamic function dispatcher from loaded tools."""
-    dispatcher = {}
+    """Create a comprehensive function dispatcher that maps ALL available tools."""
+    function_map = {}
     
-    # Import all the tool modules and map function names to actual functions
-    from twincli.tools.enhanced_search import search_web
-    from twincli.tools.obsidian import (
-        search_obsidian, read_obsidian_note, create_obsidian_note,
-        update_obsidian_note, create_daily_note, list_recent_notes
-    )
-    from twincli.tools.filesystem import write_file, read_file, create_directory
-    from twincli.tools.browser import (
-        open_browser_tab, get_page_info, find_elements_by_text,
-        click_element_by_text, fill_form_field, take_screenshot,
-        get_page_text, close_browser
-    )
-    from twincli.tools.task_planner import (
-        create_task_plan, display_current_plan, get_next_task,
-        start_task, complete_task, fail_task, get_plan_summary,
-        clear_current_plan
-    )
-    from twincli.tools.memory_journal import (
-        initialize_work_session, log_plan_to_journal, log_task_progress,
-        log_reasoning, log_tool_action, get_work_context,
-        analyze_my_work_patterns, get_todays_journal
-    )
-    from twincli.tools.obsidian_kanban import (
-        create_terminal_project, get_simple_todo_list, move_task_to_status,
-        complete_subtask, add_subtask, get_project_summary, sync_from_obsidian
-    )
-    from twincli.tools.obsidian_structure import (
-        initialize_twincli_workspace, document_new_tool, get_workspace_summary
-    )
-    from twincli.tools.filesystem import write_file, read_file, create_directory, list_directory
-    from twincli.tools.explain_git_action import explain_git_action
-    from twincli.tools.send_gmail import send_gmail
-    from twincli.tools.read_gmail_inbox import read_gmail_inbox
-    from twincli.tools.enhanced_git_command import smart_git_command, quick_git_operations
-    from twincli.tools.smart_path_finder import smart_find_path, resolve_path_intelligently, smart_git_path_resolver
-    from twincli.tools.enhanced_search import intelligent_search
-    from twincli.tools.research_orchestrator import comprehensive_research
-
-    function_map = {
-        'search_web': search_web,
-        'search_obsidian': search_obsidian,
-        'read_obsidian_note': read_obsidian_note,
-        'create_obsidian_note': create_obsidian_note,
-        'update_obsidian_note': update_obsidian_note,
-        'create_daily_note': create_daily_note,
-        'list_recent_notes': list_recent_notes,
-        'write_file': write_file,
-        'read_file': read_file,
-        'list_directory': list_directory,
-        'create_directory': create_directory,
-        'open_browser_tab': open_browser_tab,
-        'get_page_info': get_page_info,
-        'find_elements_by_text': find_elements_by_text,
-        'click_element_by_text': click_element_by_text,
-        'fill_form_field': fill_form_field,
-        'take_screenshot': take_screenshot,
-        'get_page_text': get_page_text,
-        'close_browser': close_browser,
-        'create_task_plan': create_task_plan,
-        'display_current_plan': display_current_plan,
-        'get_next_task': get_next_task,
-        'start_task': start_task,
-        'complete_task': complete_task,
-        'fail_task': fail_task,
-        'get_plan_summary': get_plan_summary,
-        'clear_current_plan': clear_current_plan,
-        'initialize_work_session': initialize_work_session,
-        'log_plan_to_journal': log_plan_to_journal,
-        'log_task_progress': log_task_progress,
-        'log_reasoning': log_reasoning,
-        'log_tool_action': log_tool_action,
-        'get_work_context': get_work_context,
-        'analyze_my_work_patterns': analyze_my_work_patterns,
-        'get_todays_journal': get_todays_journal,
-        'analyze_tool_need': analyze_tool_need,
-        'validate_tool_code': validate_tool_code,
-        'create_tool_template': create_tool_template,
-        'integrate_new_tool': integrate_new_tool,
-        'generate_tool_documentation': generate_tool_documentation,
-        'create_terminal_project': create_terminal_project,
-        'get_simple_todo_list': get_simple_todo_list,
-        'move_task_to_status': move_task_to_status,
-        'complete_subtask': complete_subtask,
-        'add_subtask': add_subtask,
-        'get_project_summary': get_project_summary,
-        'sync_from_obsidian': sync_from_obsidian,
-        'initialize_twincli_workspace': initialize_twincli_workspace,
-        'document_new_tool': document_new_tool,
-        'get_workspace_summary': get_workspace_summary,
-        # Add the missing ones:
-        'explain_git_action': explain_git_action,
-        'send_gmail': send_gmail,
-        'read_gmail_inbox': read_gmail_inbox,
-        'smart_git_command': smart_git_command,
-        'quick_git_operations': quick_git_operations,
-        'smart_find_path': smart_find_path,
-        'resolve_path_intelligently': resolve_path_intelligently,
-        'smart_git_path_resolver': smart_git_path_resolver,
-        'intelligent_search': intelligent_search,
-        'comprehensive_research': comprehensive_research,
-    }
+    # Core search and research tools
+    try:
+        from twincli.tools.search import search_web
+        function_map['search_web'] = search_web
+    except ImportError:
+        pass
+    
+    # Obsidian tools
+    try:
+        from twincli.tools.obsidian import (
+            search_obsidian, read_obsidian_note, create_obsidian_note,
+            update_obsidian_note, create_daily_note, list_recent_notes
+        )
+        function_map.update({
+            'search_obsidian': search_obsidian,
+            'read_obsidian_note': read_obsidian_note,
+            'create_obsidian_note': create_obsidian_note,
+            'update_obsidian_note': update_obsidian_note,
+            'create_daily_note': create_daily_note,
+            'list_recent_notes': list_recent_notes,
+        })
+    except ImportError:
+        pass
+    
+    # Filesystem tools
+    try:
+        from twincli.tools.filesystem import (
+            write_file, read_file, create_directory, list_directory,
+            delete_file, delete_directory
+        )
+        function_map.update({
+            'write_file': write_file,
+            'read_file': read_file,
+            'create_directory': create_directory,
+            'list_directory': list_directory,
+            'delete_file': delete_file,
+            'delete_directory': delete_directory,
+        })
+    except ImportError:
+        # Try individual imports in case some don't exist
+        try:
+            from twincli.tools.filesystem import write_file, read_file, create_directory, list_directory
+            function_map.update({
+                'write_file': write_file,
+                'read_file': read_file,
+                'create_directory': create_directory,
+                'list_directory': list_directory,
+            })
+        except ImportError:
+            pass
+    
+    # Browser automation tools
+    try:
+        from twincli.tools.browser import (
+            open_browser_tab, get_page_info, find_elements_by_text,
+            click_element_by_text, fill_form_field, take_screenshot,
+            get_page_text, close_browser
+        )
+        function_map.update({
+            'open_browser_tab': open_browser_tab,
+            'get_page_info': get_page_info,
+            'find_elements_by_text': find_elements_by_text,
+            'click_element_by_text': click_element_by_text,
+            'fill_form_field': fill_form_field,
+            'take_screenshot': take_screenshot,
+            'get_page_text': get_page_text,
+            'close_browser': close_browser,
+        })
+    except ImportError:
+        pass
+    
+    # Task planning tools
+    try:
+        from twincli.tools.task_planner import (
+            create_task_plan, display_current_plan, get_next_task,
+            start_task, complete_task, fail_task, get_plan_summary,
+            clear_current_plan
+        )
+        function_map.update({
+            'create_task_plan': create_task_plan,
+            'display_current_plan': display_current_plan,
+            'get_next_task': get_next_task,
+            'start_task': start_task,
+            'complete_task': complete_task,
+            'fail_task': fail_task,
+            'get_plan_summary': get_plan_summary,
+            'clear_current_plan': clear_current_plan,
+        })
+    except ImportError:
+        pass
+    
+    # Memory and journal tools
+    try:
+        from twincli.tools.memory_journal import (
+            initialize_work_session, log_plan_to_journal, log_task_progress,
+            log_reasoning, log_tool_action, get_work_context,
+            analyze_my_work_patterns, get_todays_journal
+        )
+        function_map.update({
+            'initialize_work_session': initialize_work_session,
+            'log_plan_to_journal': log_plan_to_journal,
+            'log_task_progress': log_task_progress,
+            'log_reasoning': log_reasoning,
+            'log_tool_action': log_tool_action,
+            'get_work_context': get_work_context,
+            'analyze_my_work_patterns': analyze_my_work_patterns,
+            'get_todays_journal': get_todays_journal,
+        })
+    except ImportError:
+        pass
+    
+    # Enhanced git tools
+    try:
+        from twincli.tools.enhanced_git_command import smart_git_command, quick_git_operations
+        function_map.update({
+            'smart_git_command': smart_git_command,
+            'quick_git_operations': quick_git_operations,
+        })
+    except ImportError:
+        pass
+    
+    # Smart path finder tools
+    try:
+        from twincli.tools.smart_path_finder import (
+            smart_find_path, resolve_path_intelligently, smart_git_path_resolver
+        )
+        function_map.update({
+            'smart_find_path': smart_find_path,
+            'resolve_path_intelligently': resolve_path_intelligently,
+            'smart_git_path_resolver': smart_git_path_resolver,
+        })
+    except ImportError:
+        pass
+    
+    # Enhanced search tools
+    try:
+        from twincli.tools.enhanced_search import intelligent_search
+        function_map['intelligent_search'] = intelligent_search
+    except ImportError:
+        pass
+    
+    # Research orchestrator
+    try:
+        from twincli.tools.research_orchestrator import comprehensive_research
+        function_map['comprehensive_research'] = comprehensive_research
+    except ImportError:
+        pass
+    
+    # Smart commit message tools
+    try:
+        from twincli.tools.smart_commit_message import analyze_git_changes, smart_commit_with_analysis
+        function_map.update({
+            'analyze_git_changes': analyze_git_changes,
+            'smart_commit_with_analysis': smart_commit_with_analysis,
+        })
+    except ImportError:
+        pass
+    
+    # Tool creation and management tools
+    try:
+        from twincli.tools.tooltool import (
+            analyze_tool_need, validate_tool_code, create_tool_template,
+            integrate_new_tool, generate_tool_documentation
+        )
+        function_map.update({
+            'analyze_tool_need': analyze_tool_need,
+            'validate_tool_code': validate_tool_code,
+            'create_tool_template': create_tool_template,
+            'integrate_new_tool': integrate_new_tool,
+            'generate_tool_documentation': generate_tool_documentation,
+        })
+    except ImportError:
+        pass
+    
+    # Git explanation tool
+    try:
+        from twincli.tools.explain_git_action import explain_git_action
+        function_map['explain_git_action'] = explain_git_action
+    except ImportError:
+        pass
+    
+    # Email tools
+    try:
+        from twincli.tools.send_gmail import send_gmail
+        function_map['send_gmail'] = send_gmail
+    except ImportError:
+        pass
+    
+    try:
+        from twincli.tools.read_gmail_inbox import read_gmail_inbox
+        function_map['read_gmail_inbox'] = read_gmail_inbox
+    except ImportError:
+        pass
+    
+    # Project management tools (if they exist)
+    try:
+        from twincli.tools.project_manager import (
+            create_terminal_project, get_simple_todo_list, move_task_to_status,
+            complete_subtask, add_subtask, get_project_summary, sync_from_obsidian
+        )
+        function_map.update({
+            'create_terminal_project': create_terminal_project,
+            'get_simple_todo_list': get_simple_todo_list,
+            'move_task_to_status': move_task_to_status,
+            'complete_subtask': complete_subtask,
+            'add_subtask': add_subtask,
+            'get_project_summary': get_project_summary,
+            'sync_from_obsidian': sync_from_obsidian,
+        })
+    except ImportError:
+        pass
+    
+    # Terminal/shell tools (if they exist)
+    try:
+        from twincli.tools.shell import run_shell
+        function_map['run_shell'] = run_shell
+    except ImportError:
+        pass
+    
+    # Notion tools (if they exist)
+    try:
+        from twincli.tools.notion_reader import read_notion_transcripts
+        function_map['read_notion_transcripts'] = read_notion_transcripts
+    except ImportError:
+        pass
+    
+    # Any other tools that might exist
+    try:
+        # Check if there are any other tools we missed
+        import os
+        import importlib
+        tools_dir = os.path.join(os.path.dirname(__file__), 'tools')
+        
+        if os.path.exists(tools_dir):
+            for filename in os.listdir(tools_dir):
+                if filename.endswith('.py') and not filename.startswith('__'):
+                    module_name = filename[:-3]
+                    
+                    # Skip modules we already imported
+                    skip_modules = {
+                        'search', 'obsidian', 'filesystem', 'browser', 'task_planner',
+                        'memory_journal', 'enhanced_git_command', 'smart_path_finder',
+                        'enhanced_search', 'research_orchestrator', 'smart_commit_message',
+                        'tooltool', 'explain_git_action', 'send_gmail', 'read_gmail_inbox'
+                    }
+                    
+                    if module_name not in skip_modules:
+                        try:
+                            module = importlib.import_module(f'twincli.tools.{module_name}')
+                            
+                            # Look for common function patterns
+                            for attr_name in dir(module):
+                                attr = getattr(module, attr_name)
+                                if callable(attr) and not attr_name.startswith('_'):
+                                    # Check if it looks like a tool function
+                                    if hasattr(attr, '__doc__') and attr.__doc__:
+                                        function_map[attr_name] = attr
+                        except Exception:
+                            # Skip modules that can't be imported
+                            pass
+    except Exception:
+        # If dynamic discovery fails, just continue with what we have
+        pass
     
     return function_map
 
