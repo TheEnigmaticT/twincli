@@ -44,18 +44,18 @@ class ConversationState:
 class ContextCompressor:
     """Manages conversation compression and state reconstruction."""
     
-    def __init__(self, model, max_context_tokens=800000, compression_threshold=600000):
+    def __init__(self, model, max_context_tokens=1000000, compression_threshold=400000):
         self.model = model
         self.max_context_tokens = max_context_tokens
-        self.compression_threshold = compression_threshold
+        self.compression_threshold = compression_threshold  # Compress at 40% of limit
         self.conversation_history = []
         self.current_state = None
         self.compression_count = 0
         
     def estimate_tokens(self, text: str) -> int:
         """Rough estimation of token count."""
-        # Simple approximation: ~4 chars per token for most text
-        return len(text) // 4
+        # More aggressive estimation: ~3 chars per token
+        return len(text) // 3
     
     def should_compress(self, chat_history) -> bool:
         """Determine if compression is needed based on context size."""
@@ -266,24 +266,31 @@ class ConversationTracker:
     def __init__(self):
         self.messages = []
         self.total_chars = 0
+        self.actual_tokens_used = 0  # Track real token usage from API
         
-    def add_message(self, role: str, content: str, function_calls: List[Dict] = None):
+    def add_message(self, role: str, content: str, function_calls: List[Dict] = None, token_count: int = 0):
         """Add a message to the conversation tracker."""
         message = {
             'role': role,
             'content': content,
             'function_calls': function_calls or [],
             'timestamp': time.time(),
-            'char_count': len(content)
+            'char_count': len(content),
+            'token_count': token_count
         }
         self.messages.append(message)
         self.total_chars += len(content)
+        if token_count > 0:
+            self.actual_tokens_used += token_count
     
     def get_context_estimate(self) -> int:
         """Get estimated token count for current context."""
-        return self.total_chars // 4  # Rough estimation
+        # Use actual token counts when available, fall back to estimation
+        if self.actual_tokens_used > 0:
+            return self.actual_tokens_used
+        return self.total_chars // 3  # More aggressive estimation (3 chars per token)
     
-    def should_compress(self, threshold: int = 600000) -> bool:
+    def should_compress(self, threshold: int = 400000) -> bool:
         """Check if compression is needed."""
         return self.get_context_estimate() > threshold
 
@@ -334,8 +341,9 @@ def enhanced_safe_api_call(chat, content, compressor: ContextCompressor, tracker
     """Enhanced API call with compression awareness and kanban integration."""
     
     # Check if compression is needed before making the call
+    current_estimate = tracker.get_context_estimate()
     if tracker.should_compress():
-        print("[yellow]Context approaching limits. Compressing conversation...[/yellow]")
+        print(f"[yellow]Context at {current_estimate:,} tokens, approaching limits. Compressing conversation...[/yellow]")
         
         # Extract user goal from recent messages if possible
         user_goal = None
@@ -347,12 +355,16 @@ def enhanced_safe_api_call(chat, content, compressor: ContextCompressor, tracker
         # Compress and restart (now includes kanban state)
         new_chat, state = compressor.compress_and_restart(chat, user_goal, function_dispatcher)
         
-        # Reset tracker
+        # Reset tracker but preserve the compression info
+        old_tokens = tracker.get_context_estimate()
         tracker.messages = []
         tracker.total_chars = 0
+        tracker.actual_tokens_used = 0
         
         # Add compression info to tracker
-        tracker.add_message("system", "Conversation compressed and restarted")
+        tracker.add_message("system", f"Conversation compressed. Previous context: {old_tokens:,} tokens")
+        
+        print(f"[green]✓ Compression complete. Context reset from {old_tokens:,} to ~0 tokens[/green]")
         
         return enhanced_safe_api_call(new_chat, content, compressor, tracker, function_dispatcher, max_retries)
     
@@ -371,13 +383,19 @@ def enhanced_safe_api_call(chat, content, compressor: ContextCompressor, tracker
             
             response = chat.send_message(content)
             
-            # Track the response
+            # Extract token usage from response if available
+            tokens_used = 0
+            if hasattr(response, 'usage_metadata') and response.usage_metadata:
+                tokens_used = (response.usage_metadata.prompt_token_count or 0) + \
+                             (response.usage_metadata.candidates_token_count or 0)
+            
+            # Track the response with actual token count
             if response and response.candidates and response.candidates[0].content.parts:
                 response_text = ""
                 for part in response.candidates[0].content.parts:
                     if hasattr(part, 'text') and part.text:
                         response_text += part.text
-                tracker.add_message("assistant", response_text)
+                tracker.add_message("assistant", response_text, token_count=tokens_used)
             
             return response, None, chat  # Return potentially new chat instance
             

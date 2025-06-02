@@ -402,6 +402,13 @@ def create_function_dispatcher():
     except ImportError:
         pass
     
+    # Enhanced search tools
+    try:
+        from twincli.tools.enhanced_search import intelligent_search
+        function_map['intelligent_search'] = intelligent_search
+    except ImportError:
+        pass
+    
     # Obsidian tools
     try:
         from twincli.tools.obsidian import (
@@ -421,30 +428,15 @@ def create_function_dispatcher():
     
     # Filesystem tools
     try:
-        from twincli.tools.filesystem import (
-            write_file, read_file, create_directory, list_directory,
-            delete_file, delete_directory
-        )
+        from twincli.tools.filesystem import write_file, read_file, create_directory, list_directory
         function_map.update({
             'write_file': write_file,
             'read_file': read_file,
             'create_directory': create_directory,
             'list_directory': list_directory,
-            'delete_file': delete_file,
-            'delete_directory': delete_directory,
         })
     except ImportError:
-        # Try individual imports in case some don't exist
-        try:
-            from twincli.tools.filesystem import write_file, read_file, create_directory, list_directory
-            function_map.update({
-                'write_file': write_file,
-                'read_file': read_file,
-                'create_directory': create_directory,
-                'list_directory': list_directory,
-            })
-        except ImportError:
-            pass
+        pass
     
     # Browser automation tools
     try:
@@ -486,14 +478,6 @@ def create_function_dispatcher():
     except ImportError:
         pass
     
-    # Analysis output tool
-    try:
-        from twincli.tools.analysis_output import save_analysis_report, save_data_summary
-        function_map['save_analysis_report'] = save_analysis_report,
-        function_map['save_data_summary'] = save_data_summary,
-    except ImportError:
-        pass
-
     # Memory and journal tools
     try:
         from twincli.tools.memory_journal import (
@@ -534,13 +518,6 @@ def create_function_dispatcher():
             'resolve_path_intelligently': resolve_path_intelligently,
             'smart_git_path_resolver': smart_git_path_resolver,
         })
-    except ImportError:
-        pass
-    
-    # Enhanced search tools
-    try:
-        from twincli.tools.enhanced_search import intelligent_search
-        function_map['intelligent_search'] = intelligent_search
     except ImportError:
         pass
     
@@ -597,7 +574,21 @@ def create_function_dispatcher():
     except ImportError:
         pass
     
-    # Project management tools (if they exist)
+    # Terminal/shell tools
+    try:
+        from twincli.tools.shell import run_shell
+        function_map['run_shell'] = run_shell
+    except ImportError:
+        pass
+    
+    # Notion tools
+    try:
+        from twincli.tools.notion_reader import read_notion_transcripts
+        function_map['read_notion_transcripts'] = read_notion_transcripts
+    except ImportError:
+        pass
+    
+    # Terminal kanban project management
     try:
         from twincli.tools.obsidian_kanban import (
             create_terminal_project, get_simple_todo_list, move_task_to_status,
@@ -615,59 +606,9 @@ def create_function_dispatcher():
     except ImportError:
         pass
     
-    # Terminal/shell tools (if they exist)
-    try:
-        from twincli.tools.shell import run_shell
-        function_map['run_shell'] = run_shell
-    except ImportError:
-        pass
-    
-    # Notion tools (if they exist)
-    try:
-        from twincli.tools.notion_reader import read_notion_transcripts
-        function_map['read_notion_transcripts'] = read_notion_transcripts
-    except ImportError:
-        pass
-    
-    # Any other tools that might exist
-    try:
-        # Check if there are any other tools we missed
-        import os
-        import importlib
-        tools_dir = os.path.join(os.path.dirname(__file__), 'tools')
-        
-        if os.path.exists(tools_dir):
-            for filename in os.listdir(tools_dir):
-                if filename.endswith('.py') and not filename.startswith('__'):
-                    module_name = filename[:-3]
-                    
-                    # Skip modules we already imported
-                    skip_modules = {
-                        'search', 'obsidian', 'filesystem', 'browser', 'task_planner',
-                        'memory_journal', 'enhanced_git_command', 'smart_path_finder',
-                        'enhanced_search', 'research_orchestrator', 'smart_commit_message',
-                        'tooltool', 'explain_git_action', 'send_gmail', 'read_gmail_inbox'
-                    }
-                    
-                    if module_name not in skip_modules:
-                        try:
-                            module = importlib.import_module(f'twincli.tools.{module_name}')
-                            
-                            # Look for common function patterns
-                            for attr_name in dir(module):
-                                attr = getattr(module, attr_name)
-                                if callable(attr) and not attr_name.startswith('_'):
-                                    # Check if it looks like a tool function
-                                    if hasattr(attr, '__doc__') and attr.__doc__:
-                                        function_map[attr_name] = attr
-                        except Exception:
-                            # Skip modules that can't be imported
-                            pass
-    except Exception:
-        # If dynamic discovery fails, just continue with what we have
-        pass
-    
-    
+    # NOTE: Don't add initialize_session_with_kanban_state to function_map
+    # because it needs function_dispatcher as an argument (circular dependency)
+    # It's only used internally by the REPL compression system
     
     return function_map
 
@@ -731,35 +672,8 @@ def debug_function_dispatcher():
 
 def auto_log_tool_usage(function_name, function_args, result, function_dispatcher):
     """Automatically log tool usage for better journal tracking."""
-    # Don't log the logging functions themselves to avoid recursion
-    if function_name.startswith('log_') or function_name in ['initialize_work_session', 'get_todays_journal']:
-        return
-    
-    try:
-        # Create a summary of what was accomplished
-        if function_name == 'search_web':
-            summary = f"Searched for: {function_args.get('query', 'unknown query')}"
-        elif function_name == 'open_browser_tab':
-            summary = f"Opened website: {function_args.get('url', 'unknown URL')}"
-        elif function_name == 'get_page_text':
-            summary = "Retrieved page content for analysis"
-        elif function_name == 'create_obsidian_note':
-            summary = f"Created note: {function_args.get('title', 'unnamed note')}"
-        else:
-            summary = f"Executed {function_name} with args: {function_args}"
-        
-        # Truncate very long results for readability
-        result_summary = str(result)
-        if len(result_summary) > 200:
-            result_summary = result_summary[:200] + "... (truncated)"
-        
-        # Log the tool usage
-        log_tool_action = function_dispatcher.get('log_tool_action')
-        if log_tool_action:
-            log_tool_action(function_name, summary, result_summary)
-    except Exception as e:
-        # Don't let logging errors break the main flow
-        console.print(f"[dim]Auto-logging failed: {e}[/dim]")
+    # TEMPORARILY DISABLED - recursion issues
+    return
 
 def start_repl():
     global token_tracker, rate_limiter
@@ -910,9 +824,13 @@ def start_repl():
             if response and response.candidates and response.candidates[0].content.parts:
                 for part in response.candidates[0].content.parts:
                     if hasattr(part, 'text') and part.text:
+                        print(f"[DEBUG] About to display text: {part.text[:100]}...")  # Add this line
                         console.print(Markdown(part.text))
             elif response and hasattr(response, 'text') and response.text:
+                print(f"[DEBUG] About to display response text: {response.text[:100]}...")  # Add this line
                 console.print(Markdown(response.text))
+            else:
+                print("[DEBUG] No text content found in response")  # Add this line
                 
         except KeyboardInterrupt:
             console.print("\n[bold yellow]Exiting TwinCLI.[/bold yellow]")
