@@ -7,7 +7,7 @@ from twincli.config import load_config, save_config, validate_obsidian_path
 from twincli.tools import TOOLS
 from twincli.repl import start_repl
 
-VERSION = "0.2.0"
+VERSION = "0.3.1"
 console = Console()
 
 @click.group(invoke_without_command=True)

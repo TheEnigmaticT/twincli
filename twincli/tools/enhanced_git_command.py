@@ -26,11 +26,21 @@ def smart_git_command(command: str, args: Optional[List[str]] = None, repo_path:
     Returns:
         JSON string containing the stdout, stderr, return code, and helpful context
     """
-    # Convert args to a proper list, handling protobuf RepeatedComposite objects
+    # Handle args properly - convert protobuf RepeatedComposite to list if needed
     if args is None:
         args = []
     else:
-        args = list(args)
+        # Safe conversion that handles both lists and protobuf objects
+        try:
+            # If it's already a list, use it as-is
+            if isinstance(args, list):
+                pass  # args is already a list
+            else:
+                # Convert protobuf RepeatedComposite or other iterable to list
+                args = list(args)
+        except Exception:
+            # If conversion fails, default to empty list
+            args = []
     
     # Smart path resolution
     resolved_repo_path = None
