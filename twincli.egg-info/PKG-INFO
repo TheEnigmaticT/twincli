@@ -8,4 +8,6 @@ License-File: LICENSE.md
 Requires-Dist: google-generativeai>=0.4.1
 Requires-Dist: rich
 Requires-Dist: click
+Requires-Dist: selenium>=4.0.0
+Requires-Dist: requests
 Dynamic: license-file

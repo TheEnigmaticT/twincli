@@ -1,27 +1,41 @@
+# twincli/repl.py
+"""
+TwinCLI REPL - main conversation loop with enhanced UX.
+Focuses purely on API interaction and conversation management.
+"""
+
 import google.generativeai as genai
 from rich.console import Console
 from rich.markdown import Markdown
-from twincli.config import load_config
-from twincli.tools import TOOLS
-from datetime import datetime
+from pathlib import Path
 import time
 import random
-from twincli.tools.tooltool import (
-    analyze_tool_need, validate_tool_code, create_tool_template,
-    integrate_new_tool, generate_tool_documentation
+import json
+
+from twincli.config import load_config
+from twincli.tools import TOOLS
+from twincli.display import (
+    TwinCLIDisplay, 
+    get_enhanced_multiline_input, 
+    format_function_args_preview,
+    get_current_session_info,
+    get_tool_purpose_context,
+    extract_project_data_from_current_project
 )
+from twincli.function_registry import create_function_dispatcher
 from twincli.tools.context_compression import (
     ContextCompressor, ConversationTracker, enhanced_safe_api_call,
     initialize_session_with_kanban_state
 )
 
 console = Console()
+display = TwinCLIDisplay(console)
 
 # Rate limiting configuration
 class RateLimiter:
     def __init__(self):
-        self.max_requests_per_minute = 60  # Gemini's actual limit
-        self.max_tokens_per_minute = 1_000_000  # Gemini's actual limit
+        self.max_requests_per_minute = 60
+        self.max_tokens_per_minute = 1_000_000
         self.request_times = []
         self.token_usage_history = []
         self.last_request_time = 0
@@ -30,24 +44,19 @@ class RateLimiter:
         """Calculate adaptive wait time based on current usage percentage."""
         usage_percentage = current_usage / max_limit
         
-        if usage_percentage < 0.66:  # Below 66% - no throttling
+        if usage_percentage < 0.66:
             return 0.0
-        elif usage_percentage < 0.80:  # 66-80% - light throttling
-            # Linear scale from 0 to 0.5 seconds
+        elif usage_percentage < 0.80:
             return (usage_percentage - 0.66) / (0.80 - 0.66) * 0.5
-        elif usage_percentage < 0.90:  # 80-90% - moderate throttling
-            # Linear scale from 0.5 to 2.0 seconds
+        elif usage_percentage < 0.90:
             return 0.5 + (usage_percentage - 0.80) / (0.90 - 0.80) * 1.5
-        else:  # 90%+ - aggressive throttling
-            # Logarithmic scale from 2.0 seconds upward
+        else:
             excess = usage_percentage - 0.90
-            return 2.0 + (excess / 0.10) ** 2 * 8.0  # Up to 10 seconds at 100%
+            return 2.0 + (excess / 0.10) ** 2 * 8.0
     
     def should_rate_limit(self, estimated_tokens=0):
         """Check if we should rate limit based on recent usage.""" 
         now = time.time()
-        
-        # Clean old entries (older than 1 minute)
         cutoff = now - 60
         self.request_times = [t for t in self.request_times if t > cutoff]
         self.token_usage_history = [(t, tokens) for t, tokens in self.token_usage_history if t > cutoff]
@@ -56,11 +65,9 @@ class RateLimiter:
         recent_tokens = sum(tokens for _, tokens in self.token_usage_history)
         projected_tokens = recent_tokens + estimated_tokens
         
-        # Calculate required wait times based on usage
         request_wait = self._calculate_adaptive_interval(current_requests, self.max_requests_per_minute, "requests")
         token_wait = self._calculate_adaptive_interval(projected_tokens, self.max_tokens_per_minute, "tokens")
         
-        # Use the longer of the two wait times
         required_wait = max(request_wait, token_wait)
         
         if required_wait > 0:
@@ -68,7 +75,6 @@ class RateLimiter:
             if time_since_last < required_wait:
                 remaining_wait = required_wait - time_since_last
                 
-                # Determine reason for throttling
                 if token_wait > request_wait:
                     reason = f"Token usage at {projected_tokens/self.max_tokens_per_minute*100:.1f}% ({projected_tokens:,}/{self.max_tokens_per_minute:,})"
                 else:
@@ -89,17 +95,15 @@ class RateLimiter:
         """Wait if we need to respect rate limits."""
         should_limit, reason, wait_time = self.should_rate_limit()
         if should_limit:
-            console.print(f"[yellow]Adaptive rate limiting: {reason}. Waiting {wait_time:.1f}s...[/yellow]")
+            display.status_update(f"Rate limiting: {reason}. Waiting {wait_time:.1f}s...", "warning")
             time.sleep(wait_time)
 
-# Global rate limiter
-rate_limiter = RateLimiter()
 
-# Gemini 2.5 Flash pricing (as of January 2025)
+# Token tracking and pricing
 PRICING = {
     "gemini-2.5-flash-preview-05-20": {
-        "input_tokens_per_million": 0.075,
-        "output_tokens_per_million": 0.30,
+        "input_tokens_per_million": 0.15,
+        "output_tokens_per_million": 0.60,
     }
 }
 
@@ -123,15 +127,12 @@ class TokenTracker:
         self.total_output_tokens += output_tokens
         self.conversation_count += 1
         
-        # Calculate costs
         pricing = PRICING.get(model_name, PRICING["gemini-2.5-flash-preview-05-20"])
         input_cost = (input_tokens / 1_000_000) * pricing["input_tokens_per_million"]
         output_cost = (output_tokens / 1_000_000) * pricing["output_tokens_per_million"]
         total_cost = input_cost + output_cost
         
         self.total_cost += total_cost
-        
-        # Record with rate limiter
         rate_limiter.record_request(input_tokens + output_tokens)
         
         return {
@@ -156,41 +157,38 @@ class TokenTracker:
             "cost_per_minute": self.total_cost / (elapsed_time / 60) if elapsed_time > 0 else 0
         }
 
-# Global token tracker
+
+# Global instances
+rate_limiter = RateLimiter()
 token_tracker = TokenTracker()
+
 
 def exponential_backoff(attempt, base_delay=1.0, max_delay=60.0):
     """Calculate exponential backoff delay."""
     delay = min(base_delay * (2 ** attempt) + random.uniform(0, 1), max_delay)
     return delay
 
+
 def safe_api_call(chat, content, max_retries=3):
-    """Make an API call with exponential backoff and error handling."""
+    """Enhanced API call with better error display."""
     for attempt in range(max_retries):
         try:
-            # Check rate limiting before making request
             rate_limiter.wait_if_needed()
-            
-            # Make the API call
             response = chat.send_message(content)
             
-            # Track token usage
             usage_info = token_tracker.track_usage(response)
             if usage_info:
-                console.print(f"[blue]Tokens: {usage_info['total_tokens']:,} (${usage_info['total_cost']:.6f})[/blue]")
+                console.print(f"[dim]Tokens: {usage_info['total_tokens']:,} (${usage_info['total_cost']:.6f})[/dim]")
             
             return response, None
             
         except Exception as e:
             error_str = str(e)
             
-            # Handle specific error types
             if "429" in error_str or "quota" in error_str.lower() or "rate" in error_str.lower():
-                # Rate limit error - extract retry delay if available
-                retry_delay = 60  # Default fallback
+                retry_delay = 60
                 if "retry_delay" in error_str:
                     try:
-                        # Try to extract the retry delay from the error
                         import re
                         delay_match = re.search(r'seconds: (\d+)', error_str)
                         if delay_match:
@@ -199,504 +197,70 @@ def safe_api_call(chat, content, max_retries=3):
                         pass
                 
                 if attempt < max_retries - 1:
-                    console.print(f"[red]Rate limit exceeded. Waiting {retry_delay}s before retry {attempt + 1}/{max_retries}...[/red]")
+                    display.status_update(f"Rate limit exceeded. Waiting {retry_delay}s before retry {attempt + 1}/{max_retries}...", "warning")
                     time.sleep(retry_delay)
                     continue
                 else:
                     return None, f"Rate limit exceeded after {max_retries} attempts. Please wait before continuing."
             
             elif "503" in error_str or "502" in error_str or "server" in error_str.lower():
-                # Server error - use exponential backoff
                 if attempt < max_retries - 1:
                     delay = exponential_backoff(attempt)
-                    console.print(f"[yellow]Server error. Retrying in {delay:.1f}s... (attempt {attempt + 1}/{max_retries})[/yellow]")
+                    display.status_update(f"Server error. Retrying in {delay:.1f}s... (attempt {attempt + 1}/{max_retries})", "warning")
                     time.sleep(delay)
                     continue
                 else:
                     return None, f"Server error after {max_retries} attempts: {e}"
-            
             else:
-                # Other errors - don't retry
                 return None, f"API error: {e}"
     
     return None, "Max retries exceeded"
 
-ENHANCED_SYSTEM_INSTRUCTION = """You are TwinCLI, an advanced agentic AI assistant with comprehensive tool access and persistent memory capabilities. You operate as a thoughtful, proactive partner in accomplishing complex tasks.
 
-**REQUIRED LOGGING PATTERNS:**
-
-1. **ALWAYS start each session** with `initialize_work_session()`
-
-2. **For Complex tasks or requests, ALWAYS:**
-   - Call `log_reasoning()` to explain your approach and thinking
-   - Call `log_tool_action()` after using any tool to summarize what you learned
-   - Call `log_task_progress()` when starting, completing, or failing tasks
-
-3. **For complex requests, ALWAYS:**
-   - Create a detailed plan with `create_task_plan()`
-   - Log your reasoning for the plan structure
-   - Log progress after each major step
-   - Log insights and discoveries as you work
-
-4. **When using tools, ALWAYS log:**
-   - Why you chose that specific tool
-   - What you're trying to accomplish
-   - What the results told you
-   - How it influences your next steps
-
-5. **Log your decision-making process:**
-   - When you encounter problems or obstacles
-   - When you change your approach
-   - When you discover something unexpected
-   - When you make connections between different pieces of information
-
-## IMPORTANT: AVOID CONVERSATION LOOPS
-
-- If a user provides a large block of text, treat it as complete input, not individual items to process one by one
-- Don't ask for "the next word" or similar - process full content blocks as complete units
-- If you're unsure about input format, ask once for clarification rather than creating a loop
-
-## Examples of REQUIRED logging calls:
-
-```
-# At the start of any session
-initialize_work_session()
-
-# Before doing research
-log_reasoning("I need to understand X before I can Y. My approach will be to...", "Starting research phase")
-
-# After using a tool
-log_tool_action("search_web", "Research competitors in the startup consulting space", "Found 5 potential competitors, with [Company] being the closest match")
-
-# When completing tasks
-log_task_progress("task_1", "Research target company", "complete", "Successfully analyzed their service offerings and target market")
-```
-
-## Core Capabilities & Approach
-
-**PLANNING-FIRST METHODOLOGY:**
-- Before undertaking any non-trivial task, ALWAYS create a structured plan using create_task_plan()
-- Break complex requests into clear, actionable steps with dependencies
-- Show your thinking process using log_reasoning() for transparency
-- Reference past work patterns using get_work_context() to inform current decisions
-
-**MEMORY & PERSISTENCE:**
-- Maintain a persistent work journal in Obsidian with detailed logs of all activities
-- Use initialize_work_session() at the start of each day/session
-- Log all significant actions, decisions, and results for future reference
-- Learn from past successes and failures to improve approach over time
-
-**TOOL ORCHESTRATION:**
-You have access to powerful tools across multiple domains:
-
-🔍 **Research & Information:**
-- search_web() for current information and real-time data
-- Web browsing with full interaction (open pages, fill forms, click elements)
-- Obsidian vault search and analysis for personal knowledge
-- A full set of git commands
-- Terminal execution for system operations
-- A complete set of project management tools to manage tasks and projects you undertake for the user
-
-📝 **Content Creation & Management:**
-- Create, read, and update Obsidian notes with intelligent organization
-- File system operations for document management
-- Structured writing with proper tagging and cross-references
-
-🤖 **Task Automation:**
-- Browser automation for web-based workflows
-- Shell command execution for system operations
-- Multi-step process orchestration with progress tracking
-
-🧠 **Cognitive Framework:**
-- Task planning with dependency management
-- Progress tracking with detailed status updates  
-- Pattern recognition from historical work data
-- Adaptive problem-solving based on context
-
-## Behavioral Guidelines
-
-**BE PROACTIVE:**
-- Anticipate user needs and suggest next steps
-- Offer to extend or improve upon completed tasks
-- Identify opportunities for automation or optimization
-
-**BE TRANSPARENT:**
-- Always explain your reasoning and approach
-- Show task progress and current status clearly
-- Log important decisions and their rationale
-- Acknowledge uncertainties and limitations
-
-**BE SYSTEMATIC:**
-- Use structured approaches for complex problems
-- Maintain organized documentation and notes
-- Follow consistent naming and tagging conventions
-- Build on previous work rather than starting from scratch
-
-**BE CONTEXTUAL:**
-- Consider user's past requests and preferences
-- Reference relevant previous work when applicable
-- Adapt communication style to task complexity
-- Provide appropriate level of detail for the audience
-
-## Execution Patterns
-
-For **SIMPLE TASKS** (quick questions, basic calculations):
-- Initialize work session and log your reasoning
-- Respond directly with clear, step-by-step reasoning
-- Use tools only when necessary for current information
-- Log any tools used and insights gained
-
-For **MODERATE TASKS** (research, content creation):
-- Initialize work session
-- Create a brief informal plan and log your approach
-- Execute with tool integration
-- Log key results and insights for future reference
-
-For **COMPLEX TASKS** (multi-step projects, automation):
-1. Initialize work session and check context
-2. Create detailed task plan with dependencies and log your reasoning
-3. Log reasoning and approach decisions
-4. Execute systematically with progress updates after each major step
-5. Document results and lessons learned
-6. Suggest follow-up actions or improvements
-
-**DELIVERABLE REQUIREMENTS:**
-For analysis, research, or synthesis tasks:
-1. **Always present findings in chat first** - Show your complete analysis to the user
-2. **Save important results to files** - Use save_analysis_report() to create persistent deliverables
-3. **Place files logically** - Save analysis reports in the same directory as source data when possible
-4. **Verify delivery** - Only mark tasks complete after confirming the user received the results
-
-**ANALYSIS TASK PATTERN:**
-1. Complete your analysis
-2. Present findings in chat with clear formatting
-3. Save detailed report to file using save_analysis_report()
-4. Confirm both chat delivery and file creation
-5. Only then mark the task as complete
-
-## Communication Style
-
-- **Clear and direct** - avoid unnecessary verbosity
-- **Structured presentation** - use headers, lists, and formatting for clarity
-- **Action-oriented** - focus on practical next steps
-- **Educational** - explain concepts and reasoning when helpful
-- **Professional yet approachable** - maintain helpful, collaborative tone
-
-## Error Handling & Adaptation
-
-- When tools fail, try alternative approaches before giving up
-- Learn from failures and adjust strategy accordingly
-- Always provide partial results and explain what worked vs. what didn't
-- Suggest manual alternatives when automation isn't possible
-
-Remember: You're not just answering queries—you're serving as an intelligent, persistent partner in achieving the user's goals. Think strategically, act systematically, and always consider the bigger picture while maintaining meticulous attention to detail."""
-
-def create_function_dispatcher():
-    """Create a comprehensive function dispatcher that maps ALL available tools."""
-    function_map = {}
-    
-    # Core search and research tools
-    try:
-        from twincli.tools.search import search_web
-        function_map['search_web'] = search_web
-    except ImportError:
-        pass
-    
-    # Enhanced search tools
-    try:
-        from twincli.tools.enhanced_search import intelligent_search
-        function_map['intelligent_search'] = intelligent_search
-    except ImportError:
-        pass
-    
-    # Obsidian tools
-    try:
-        from twincli.tools.obsidian import (
-            search_obsidian, read_obsidian_note, create_obsidian_note,
-            update_obsidian_note, create_daily_note, list_recent_notes
-        )
-        function_map.update({
-            'search_obsidian': search_obsidian,
-            'read_obsidian_note': read_obsidian_note,
-            'create_obsidian_note': create_obsidian_note,
-            'update_obsidian_note': update_obsidian_note,
-            'create_daily_note': create_daily_note,
-            'list_recent_notes': list_recent_notes,
-        })
-    except ImportError:
-        pass
-    
-    # Filesystem tools
-    try:
-        from twincli.tools.filesystem import write_file, read_file, create_directory, list_directory
-        function_map.update({
-            'write_file': write_file,
-            'read_file': read_file,
-            'create_directory': create_directory,
-            'list_directory': list_directory,
-        })
-    except ImportError:
-        pass
-    
-    # Browser automation tools
-    try:
-        from twincli.tools.browser import (
-            open_browser_tab, get_page_info, find_elements_by_text,
-            click_element_by_text, fill_form_field, take_screenshot,
-            get_page_text, close_browser
-        )
-        function_map.update({
-            'open_browser_tab': open_browser_tab,
-            'get_page_info': get_page_info,
-            'find_elements_by_text': find_elements_by_text,
-            'click_element_by_text': click_element_by_text,
-            'fill_form_field': fill_form_field,
-            'take_screenshot': take_screenshot,
-            'get_page_text': get_page_text,
-            'close_browser': close_browser,
-        })
-    except ImportError:
-        pass
-    
-    # Task planning tools
-    try:
-        from twincli.tools.task_planner import (
-            create_task_plan, display_current_plan, get_next_task,
-            start_task, complete_task, fail_task, get_plan_summary,
-            clear_current_plan
-        )
-        function_map.update({
-            'create_task_plan': create_task_plan,
-            'display_current_plan': display_current_plan,
-            'get_next_task': get_next_task,
-            'start_task': start_task,
-            'complete_task': complete_task,
-            'fail_task': fail_task,
-            'get_plan_summary': get_plan_summary,
-            'clear_current_plan': clear_current_plan,
-        })
-    except ImportError:
-        pass
-    
-    # Memory and journal tools
-    try:
-        from twincli.tools.memory_journal import (
-            initialize_work_session, log_plan_to_journal, log_task_progress,
-            log_reasoning, log_tool_action, get_work_context,
-            analyze_my_work_patterns, get_todays_journal
-        )
-        function_map.update({
-            'initialize_work_session': initialize_work_session,
-            'log_plan_to_journal': log_plan_to_journal,
-            'log_task_progress': log_task_progress,
-            'log_reasoning': log_reasoning,
-            'log_tool_action': log_tool_action,
-            'get_work_context': get_work_context,
-            'analyze_my_work_patterns': analyze_my_work_patterns,
-            'get_todays_journal': get_todays_journal,
-        })
-    except ImportError:
-        pass
-    
-    # Enhanced git tools
-    try:
-        from twincli.tools.enhanced_git_command import smart_git_command, quick_git_operations
-        function_map.update({
-            'smart_git_command': smart_git_command,
-            'quick_git_operations': quick_git_operations,
-        })
-    except ImportError:
-        pass
-    
-    # Smart path finder tools
-    try:
-        from twincli.tools.smart_path_finder import (
-            smart_find_path, resolve_path_intelligently, smart_git_path_resolver
-        )
-        function_map.update({
-            'smart_find_path': smart_find_path,
-            'resolve_path_intelligently': resolve_path_intelligently,
-            'smart_git_path_resolver': smart_git_path_resolver,
-        })
-    except ImportError:
-        pass
-    
-    # Research orchestrator
-    try:
-        from twincli.tools.research_orchestrator import comprehensive_research
-        function_map['comprehensive_research'] = comprehensive_research
-    except ImportError:
-        pass
-    
-    # Smart commit message tools
-    try:
-        from twincli.tools.smart_commit_message import analyze_git_changes, smart_commit_with_analysis
-        function_map.update({
-            'analyze_git_changes': analyze_git_changes,
-            'smart_commit_with_analysis': smart_commit_with_analysis,
-        })
-    except ImportError:
-        pass
-    
-    # Tool creation and management tools
-    try:
-        from twincli.tools.tooltool import (
-            analyze_tool_need, validate_tool_code, create_tool_template,
-            integrate_new_tool, generate_tool_documentation
-        )
-        function_map.update({
-            'analyze_tool_need': analyze_tool_need,
-            'validate_tool_code': validate_tool_code,
-            'create_tool_template': create_tool_template,
-            'integrate_new_tool': integrate_new_tool,
-            'generate_tool_documentation': generate_tool_documentation,
-        })
-    except ImportError:
-        pass
-    
-    # Git explanation tool
-    try:
-        from twincli.tools.explain_git_action import explain_git_action
-        function_map['explain_git_action'] = explain_git_action
-    except ImportError:
-        pass
-    
-    # Email tools
-    try:
-        from twincli.tools.send_gmail import send_gmail
-        function_map['send_gmail'] = send_gmail
-    except ImportError:
-        pass
+def load_system_instruction() -> str:
+    """Load system instruction from markdown file."""
+    instruction_path = Path(__file__).parent / "system_instruction.md"
     
     try:
-        from twincli.tools.read_gmail_inbox import read_gmail_inbox
-        function_map['read_gmail_inbox'] = read_gmail_inbox
-    except ImportError:
-        pass
-    
-    # Terminal/shell tools
-    try:
-        from twincli.tools.shell import run_shell
-        function_map['run_shell'] = run_shell
-    except ImportError:
-        pass
-    
-    # Notion tools
-    try:
-        from twincli.tools.notion_reader import read_notion_transcripts
-        function_map['read_notion_transcripts'] = read_notion_transcripts
-    except ImportError:
-        pass
-    
-    # Terminal kanban project management
-    try:
-        from twincli.tools.obsidian_kanban import (
-            create_terminal_project, get_simple_todo_list, move_task_to_status,
-            complete_subtask, add_subtask, get_project_summary, sync_from_obsidian
-        )
-        function_map.update({
-            'create_terminal_project': create_terminal_project,
-            'get_simple_todo_list': get_simple_todo_list,
-            'move_task_to_status': move_task_to_status,
-            'complete_subtask': complete_subtask,
-            'add_subtask': add_subtask,
-            'get_project_summary': get_project_summary,
-            'sync_from_obsidian': sync_from_obsidian,
-        })
-    except ImportError:
-        pass
-    
-    # NOTE: Don't add initialize_session_with_kanban_state to function_map
-    # because it needs function_dispatcher as an argument (circular dependency)
-    # It's only used internally by the REPL compression system
-    
-    return function_map
+        return instruction_path.read_text(encoding='utf-8')
+    except FileNotFoundError:
+        display.status_update(f"System instruction file not found: {instruction_path}", "warning")
+        # Fallback to basic instruction
+        return """You are TwinCLI, an advanced AI assistant. You have access to many tools and should use them to help users accomplish their goals."""
+    except Exception as e:
+        display.status_update(f"Error loading system instruction: {e}", "error")
+        return """You are TwinCLI, an advanced AI assistant."""
 
-# Add this simple function to your repl.py
-
-def debug_function_dispatcher():
-    """Debug version that logs everything it finds."""
-    print("=== DEBUGGING FUNCTION DISPATCHER ===")
-    
-    # Get the current dispatcher
-    current_functions = create_function_dispatcher()
-    
-    print(f"Total functions found: {len(current_functions)}")
-    print("\nAll functions:")
-    
-    for i, func_name in enumerate(sorted(current_functions.keys()), 1):
-        print(f"{i:2d}. {func_name}")
-    
-    # Also try to scan the tools directory manually
-    print("\n=== TOOLS DIRECTORY SCAN ===")
-    import os
-    import importlib
-    
-    tools_dir = os.path.join(os.path.dirname(__file__), 'tools')
-    print(f"Scanning: {tools_dir}")
-    
-    if os.path.exists(tools_dir):
-        py_files = [f for f in os.listdir(tools_dir) if f.endswith('.py') and not f.startswith('__')]
-        print(f"Python files found: {sorted(py_files)}")
-        
-        for py_file in sorted(py_files):
-            module_name = py_file[:-3]
-            print(f"\nChecking {module_name}:")
-            
-            try:
-                module = importlib.import_module(f'twincli.tools.{module_name}')
-                
-                # Find all callable functions
-                functions_in_module = []
-                for attr_name in dir(module):
-                    if not attr_name.startswith('_'):
-                        attr = getattr(module, attr_name)
-                        if callable(attr):
-                            functions_in_module.append(attr_name)
-                
-                print(f"  Callable functions: {functions_in_module}")
-                
-                # Check which ones have docstrings
-                with_docs = []
-                for func_name in functions_in_module:
-                    func = getattr(module, func_name)
-                    if hasattr(func, '__doc__') and func.__doc__:
-                        with_docs.append(func_name)
-                
-                print(f"  With docstrings: {with_docs}")
-                
-            except Exception as e:
-                print(f"  ERROR importing: {e}")
-    
-    return current_functions
 
 def auto_log_tool_usage(function_name, function_args, result, function_dispatcher):
     """Automatically log tool usage for better journal tracking."""
     # TEMPORARILY DISABLED - recursion issues
     return
 
+
 def start_repl():
+    """Start the enhanced TwinCLI REPL with visual feedback and tool integration."""
     global token_tracker, rate_limiter
     
+    # Load configuration
     config = load_config()
     genai.configure(api_key=config["api_key"])
     
     # Create function dispatcher
     function_dispatcher = create_function_dispatcher()
-
-    # NEW: Initialize compression system
-    compressor = ContextCompressor(None)  # Will set model after creation
+    
+    # Initialize compression system
+    compressor = ContextCompressor(None)
     tracker = ConversationTracker()
     
-    # Debug: Check what tools we're loading
-    console.print(f"[dim]Loading {len(TOOLS)} tools: {[getattr(tool, '__name__', str(tool)) for tool in TOOLS]}[/dim]")
-    console.print(f"[dim]Function dispatcher has {len(function_dispatcher)} functions[/dim]")
+    # Load system instruction from file
+    system_instruction = load_system_instruction()
     
     # Create the model with enhanced configuration
     model = genai.GenerativeModel(
         model_name="gemini-2.5-flash-preview-05-20",
         tools=TOOLS,
-        system_instruction=ENHANCED_SYSTEM_INSTRUCTION,
+        system_instruction=system_instruction,
         generation_config={
             "temperature": 0.8,
             "top_p": 0.9,
@@ -712,41 +276,18 @@ def start_repl():
     )
     chat = model.start_chat()
 
-    console.print("[bold blue]TwinCLI Chat Mode — Gemini 2.5 Flash[/bold blue]")
-    console.print("[dim]Enhanced with adaptive rate limiting, auto-retry, and cost monitoring[/dim]\n")
+    # Enhanced startup display
+    display.startup_banner(len(TOOLS), len(function_dispatcher))
+    
+    # Show session info
+    session_info = get_current_session_info()
+    display.session_header(session_info)
 
+    # Main conversation loop
     while True:
         try:
-            # Handle multi-line input
-            prompt_lines = []
-            console.print("[bold cyan]You > [/bold cyan]", end="")
-            
-            while True:
-                try:
-                    if not prompt_lines:
-                        line = input().strip()
-                    else:
-                        line = input("     > ").strip()
-                    
-                    if line.endswith("\\"):
-                        prompt_lines.append(line[:-1])
-                    else:
-                        prompt_lines.append(line)
-                        break
-                except EOFError:
-                    if prompt_lines:
-                        break
-                    else:
-                        console.print("\n[bold yellow]Exiting TwinCLI.[/bold yellow]")
-                        # Show session summary
-                        summary = token_tracker.get_session_summary()
-                        console.print(f"\n[dim]Session Summary:[/dim]")
-                        console.print(f"[dim]Total tokens: {summary['total_tokens']:,} ({summary['total_input_tokens']:,} in, {summary['total_output_tokens']:,} out)[/dim]")
-                        console.print(f"[dim]Total cost: ${summary['total_cost']:.4f}[/dim]")
-                        console.print(f"[dim]Conversations: {summary['conversation_count']} over {summary['elapsed_minutes']:.1f} minutes[/dim]")
-                        return
-            
-            prompt = "\n".join(prompt_lines).strip()
+            # Get enhanced multi-line input
+            prompt = get_enhanced_multiline_input(console)
             
             if not prompt:
                 continue
@@ -754,26 +295,25 @@ def start_repl():
             if prompt.lower() in ("exit", "quit", ":q"):
                 break
             
-            # Usage commands
+            # Handle special commands
             if prompt.lower() in ("tokens", "cost", "usage"):
                 summary = token_tracker.get_session_summary()
-                console.print(f"\n[bold]Session Token Usage Summary:[/bold]")
-                console.print(f"Input tokens: {summary['total_input_tokens']:,}")
-                console.print(f"Output tokens: {summary['total_output_tokens']:,}")
-                console.print(f"Total tokens: {summary['total_tokens']:,}")
-                console.print(f"Total cost: ${summary['total_cost']:.6f}")
-                console.print(f"Conversations: {summary['conversation_count']}")
-                console.print(f"Average cost per minute: ${summary['cost_per_minute']:.6f}")
+                display.usage_summary_table(summary)
                 continue
             
-            # Make API call with rate limiting and retries
+            if prompt.lower() in ("session", "status"):
+                session_info = get_current_session_info()
+                display.session_header(session_info)
+                continue
+            
+            # Make API call with enhanced error handling
             response, error = safe_api_call(chat, prompt)
             if error:
-                console.print(f"[red]Error: {error}[/red]")
-                console.print("[yellow]Please wait a moment before trying again.[/yellow]")
+                display.status_update(f"Error: {error}", "error")
+                display.status_update("Please wait a moment before trying again.", "warning")
                 continue
             
-            # Handle function calls with rate limiting
+            # Handle function calls with enhanced display
             while (response and response.candidates and 
                    response.candidates[0].content.parts and
                    any(hasattr(part, 'function_call') and part.function_call for part in response.candidates[0].content.parts)):
@@ -785,12 +325,19 @@ def start_repl():
                         function_name = part.function_call.name
                         function_args = dict(part.function_call.args)
                         
-                        console.print(f"[bright_green]Calling {function_name} with args: {function_args}[/bright_green]")
+                        # Enhanced tool call display
+                        args_preview = format_function_args_preview(function_args)
+                        purpose = get_tool_purpose_context(function_name, function_args)
+                        
+                        display.tool_action(function_name, purpose, args_preview)
                         
                         try:
                             if function_name in function_dispatcher:
                                 result = function_dispatcher[function_name](**function_args)
                                 auto_log_tool_usage(function_name, function_args, result, function_dispatcher)
+                                
+                                # Enhanced result display
+                                display.tool_result(result, success=True)
                                 
                                 function_response = genai.protos.Part(
                                     function_response=genai.protos.FunctionResponse(
@@ -800,13 +347,15 @@ def start_repl():
                                 )
                                 function_responses.append(function_response)
                             else:
-                                console.print(f"[red]Unknown function: {function_name}[/red]")
+                                error_msg = f"Unknown function: {function_name}"
+                                display.tool_result(error_msg, success=False)
                         except Exception as e:
-                            console.print(f"[red]Error executing {function_name}:[/red] {e}")
+                            error_msg = f"Error executing {function_name}: {e}"
+                            display.tool_result(error_msg, success=False)
                             error_response = genai.protos.Part(
                                 function_response=genai.protos.FunctionResponse(
                                     name=function_name,
-                                    response={"result": f"Error: {e}"}
+                                    response={"result": error_msg}
                                 )
                             )
                             function_responses.append(error_response)
@@ -815,27 +364,34 @@ def start_repl():
                 if function_responses:
                     response, error = safe_api_call(chat, function_responses)
                     if error:
-                        console.print(f"[red]Error in function response: {error}[/red]")
+                        display.status_update(f"Error in function response: {error}", "error")
                         break
                 else:
                     break
             
-            # Display text content
+            # Display AI response with enhanced formatting
             if response and response.candidates and response.candidates[0].content.parts:
                 for part in response.candidates[0].content.parts:
                     if hasattr(part, 'text') and part.text:
-                        print(f"[DEBUG] About to display text: {part.text[:100]}...")  # Add this line
+                        # Check if it's project-related content that should show progress
+                        if any(keyword in part.text.lower() for keyword in ['project:', 'task', 'kanban', 'progress']):
+                            project_data = extract_project_data_from_current_project()
+                            if project_data:
+                                display.project_progress_table(project_data)
+                        
+                        # Display the main response
                         console.print(Markdown(part.text))
             elif response and hasattr(response, 'text') and response.text:
-                print(f"[DEBUG] About to display response text: {response.text[:100]}...")  # Add this line
                 console.print(Markdown(response.text))
-            else:
-                print("[DEBUG] No text content found in response")  # Add this line
                 
         except KeyboardInterrupt:
-            console.print("\n[bold yellow]Exiting TwinCLI.[/bold yellow]")
+            display.status_update("Exiting TwinCLI.", "info")
             break
         except Exception as e:
-            console.print(f"[red]Unexpected error:[/red] {e}")
+            display.status_update(f"Unexpected error: {e}", "error")
             import traceback
-            traceback.print_exc()
+            console.print(f"[dim]{traceback.format_exc()}[/dim]")
+    
+    # Show final session summary
+    summary = token_tracker.get_session_summary()
+    display.final_session_summary(summary)
