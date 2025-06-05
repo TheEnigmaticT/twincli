@@ -49,25 +49,37 @@ class TwinCLIDisplay:
         self.console.print(f"[bright_green]🔧 {tool_name}[/bright_green]{args_text}")
         self.console.print(f"[dim]   └─ {purpose}[/dim]")
     
-    def tool_result(self, result: str, success: bool = True):
-        """Display tool results with auto-collapse for large content."""
-        status = "✓" if success else "✗"
-        color = "green" if success else "red"
-        
-        # Filter out debug statements from tool results
-        filtered_result = self._filter_debug_statements(result)
-        
-        if len(filtered_result) > 800:  # Auto-collapse large results
-            preview = filtered_result[:300] + "..."
-            self.console.print(f"[{color}]{status}[/{color}] [dim]Result ({len(filtered_result)} chars):[/dim]")
-            self.console.print(Panel(preview, title="Preview", border_style="dim", padding=(0, 1)))
+    def tool_result(self, result: str, success: bool = True, tool_name: str = None):
+            """Display tool results with auto-collapse for large content."""
+            status = "✓" if success else "✗"
+            color = "green" if success else "red"
             
-            if Confirm.ask("[dim]Show full result?[/dim]", default=False):
-                self.console.print(Panel(filtered_result, title="Full Result", border_style=color, padding=(0, 1)))
-        else:
-            self.console.print(f"[{color}]{status}[/{color}] [bold]Result:[/bold]")
-            self.console.print(Panel(filtered_result, border_style=color, padding=(0, 1)))
-    
+            # Filter out debug statements from tool results
+            filtered_result = self._filter_debug_statements(result)
+            
+            # SPECIAL HANDLING FOR log_reasoning TOOL
+            if tool_name == "log_reasoning" and "Analysis:" in filtered_result:
+                # Extract the analysis content
+                analysis_start = filtered_result.find("Analysis:")
+                if analysis_start != -1:
+                    analysis_content = filtered_result[analysis_start + 9:].strip()  # Skip "Analysis:"
+                    
+                    # Show just the reasoning in dim grey (like Claude Code)
+                    self.console.print(f"[dim italic]🤔 {analysis_content}[/dim italic]")
+                    return  # Skip the normal result display
+            
+            # NORMAL TOOL RESULT HANDLING (existing code)
+            if len(filtered_result) > 800:
+                preview = filtered_result[:300] + "..."
+                self.console.print(f"[{color}]{status}[/{color}] [dim]Result ({len(filtered_result)} chars):[/dim]")
+                self.console.print(Panel(preview, title="Preview", border_style="dim", padding=(0, 1)))
+                
+                if Confirm.ask("[dim]Show full result?[/dim]", default=False):
+                    self.console.print(Panel(filtered_result, title="Full Result", border_style=color, padding=(0, 1)))
+                else:
+                    self.console.print(f"[{color}]{status}[/{color}] [bold]Result:[/bold]")
+                    self.console.print(Panel(filtered_result, border_style=color, padding=(0, 1)))
+        
     def _filter_debug_statements(self, text: str) -> str:
         """Filter out debug statements from tool output."""
         if not text:

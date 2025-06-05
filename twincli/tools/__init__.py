@@ -24,6 +24,7 @@ from twincli.tools.send_gmail import send_gmail
 from twincli.tools.read_gmail_inbox import read_gmail_inbox
 from twincli.tools.context_compression import initialize_session_with_kanban_state
 from twincli.tools.analysis_output import save_analysis_report, save_data_summary
+from twincli.tools.research_person_for_podcast import research_person_for_podcast
 
 TOOLS = [
     search_web, 
@@ -53,4 +54,5 @@ TOOLS = [
     send_gmail,
     read_gmail_inbox,
     initialize_session_with_kanban_state,
+    research_person_for_podcast,
 ]

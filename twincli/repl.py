@@ -337,7 +337,7 @@ def start_repl():
                                 auto_log_tool_usage(function_name, function_args, result, function_dispatcher)
                                 
                                 # Enhanced result display
-                                display.tool_result(result, success=True)
+                                display.tool_result(result, success=True, tool_name=function_name)
                                 
                                 function_response = genai.protos.Part(
                                     function_response=genai.protos.FunctionResponse(
