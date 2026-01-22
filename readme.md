@@ -165,4 +165,4 @@ MIT – do what you like. Attribution appreciated.
 
 TwinCLI was built to help developers like me (and you) use AI more naturally: directly in the workflow, without fluff. It’s fast, hackable, and respectful of your RAM.
 
--- [@yourhandle](https://github.com/yourusername)
+Hope ya like it!
